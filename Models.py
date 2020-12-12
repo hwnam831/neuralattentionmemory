@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from Encoder import TFEncoder, CNNEncoder, XLNetEncoderLayer
 from Decoder import TFDecoder
+from dnc.dnc import DNC
 
 
 class TfS2S(nn.Module):
@@ -132,3 +133,24 @@ class GRUAE(nn.Module):
         input2 = input.permute(1,0)
         src = self.cell(self.embedding(input2))[0]
         return self.fc(src).permute(1,2,0)
+
+class DNCAE(nn.Module):
+    def __init__(self, model_size=64, nhead=4, vocab_size=16):
+        super().__init__()
+        self.model_size=model_size
+        self.vocab_size = vocab_size
+        self.embedding = nn.Embedding(vocab_size, model_size)
+        self.cell = DNC(input_size=model_size,
+            hidden_size=model_size,
+            batch_first=True,
+            bidirectional=False,
+            nr_cells=5,
+            read_heads=nhead,
+            cell_size=10,
+            gpu_id=0,
+        )
+        self.fc = nn.Linear(model_size, vocab_size)
+    #Batch-first in (N,S), batch-first out (N,C,S)
+    def forward(self, input):
+        src = self.cell(self.embedding(input))[0] #N, S, C
+        return self.fc(src).permute(0,2,1)
