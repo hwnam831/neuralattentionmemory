@@ -28,7 +28,7 @@ def get_args():
     parser.add_argument(
             "--validation_size",
             type=int,
-            default='1536',
+            default='2048',
             help='number of validation examples')
     parser.add_argument(
             "--batch_size",

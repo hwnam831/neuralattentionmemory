@@ -1,6 +1,6 @@
 ☐ Gated version
 ☐ Checkpointing
-☐ Sparsity Constraint
+☐ Sparsity Constraint Pruning
 ☐ Memory Detaching
 ☐ S2S
 ☐ Decoding speedup
