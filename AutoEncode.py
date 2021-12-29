@@ -11,6 +11,7 @@ from NSPDataset import NSPDatasetAE, NSPDatasetAE2, StringDataset, Token, fib, a
 from PTBCDataset import PTBCDataset
 from PTBWDataset import PTBWDataset
 from AttentionMatrix import AMEncoder, AMIBERT, LinearAttention, RecurrentAM
+import AM
 from torch.utils.data import Dataset, DataLoader
 import time
 import math
@@ -161,7 +162,7 @@ if __name__ == '__main__':
         num_layers = 4
     elif args.model_size == 'small':
         dmodel = 512
-        nhead = 8
+        nhead = 4
         num_layers = 4
     elif args.model_size == 'medium':
         dmodel = 512
@@ -213,6 +214,9 @@ if __name__ == '__main__':
     elif args.net == 'dnc':
         print('Executing DNC model')
         model = Models.DNCAE(dmodel, nhead, vocab_size=vocab_size).cuda()
+    elif args.net == 'lsam':
+        print('Executing LSAM model')
+        model = AM.LSAMAE(dmodel, nhead, vocab_size=vocab_size).cuda()
     else :
         print('Network {} not supported'.format(args.net))
         exit()
