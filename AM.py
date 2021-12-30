@@ -191,12 +191,13 @@ class AMIBERT(nn.Module):
 
 #TODO: lets add bidirectional for fib
 class LSAMCell(nn.Module):
-    def __init__(self, d_model, nhead, sigma=unitnorm):
+    def __init__(self, input_dim, d_model, nhead, sigma=unitnorm):
         super().__init__()
         assert d_model % nhead == 0
         self.nhead = nhead
-        self.Wqkv = nn.Linear(d_model*2, d_model*3) # x:h -> q:k:v
-        self.Ww = nn.Linear(d_model*2, nhead)
+        self.input_dim = input_dim
+        self.Wqkv = nn.Linear(d_model+input_dim, d_model*3) # x:h -> q:k:v
+        self.Ww = nn.Linear(d_model+input_dim, nhead)
         
         self.sigma = sigma
         self.d_head = d_model//nhead
@@ -236,7 +237,7 @@ class LSAM(nn.Module):
         assert d_model % nhead == 0
         self.nhead = nhead
         self.encoder = nn.ModuleList([
-            LSAMCell(d_model=d_model, nhead=nhead) for _ in range(num_layers)
+            LSAMCell(input_dim=d_model, d_model=d_model, nhead=nhead) for _ in range(num_layers)
         ])
         
         self.sigma = sigma
@@ -269,14 +270,72 @@ class LSAM(nn.Module):
         out = self.Wo(out) + x
         return self.norm(out), (h,AM)
 
+class BLSAM(nn.Module):
+    def __init__(self, input_dim, d_model, nhead, sigma=unitnorm, activation = nn.ReLU(), drop=0.1):
+        super().__init__()
+        assert d_model % nhead == 0
+        assert d_model % 2 == 0
+        assert nhead % 2 == 0
+        self.nhead = nhead
+        self.enc_fw = LSAMCell(input_dim=input_dim, d_model=d_model//2, nhead=nhead//2)
+        self.enc_bw = LSAMCell(input_dim=input_dim, d_model=d_model//2, nhead=nhead//2)
+        self.input_dim = input_dim
+        self.sigma = sigma
+        self.d_head = d_model//nhead
+        self.d_model = d_model
+        self.Wo = nn.Sequential(nn.Linear(d_model, d_model),
+                                nn.Dropout(drop), activation)
+        self.norm = nn.LayerNorm(d_model)
+    def forward(self, x, hA=None):
+        #assuming (S,B,C) layout
+        B = x.size(1)
+        if hA is None:
+            h_f = torch.zeros([B, self.d_model//2],
+                        dtype=x.dtype, device=x.device)
+            h_b = torch.zeros([B, self.d_model//2],
+                        dtype=x.dtype, device=x.device)
+            #B,N,D/N,D/N
+            AM_f = torch.zeros([B, self.nhead//2, self.d_head, self.d_head],
+                        dtype=x.dtype, device=x.device) 
+            AM_b = torch.zeros([B, self.nhead//2, self.d_head, self.d_head],
+                        dtype=x.dtype, device=x.device) 
+        else:
+            h,AM = hA
+            h_f = h[:,:self.d_model//2]
+            h_b = h[:,self.d_model//2:]
+            AM_f = AM[:,:self.nhead//2]
+            AM_f = AM[:,self.nhead//2:]
+
+        out_f = []
+        out_b = []
+        for i in range(len(x)):
+            x_f = x[i]
+            h_f, AM_f = self.enc_fw(x_f, h_f, AM_f)
+            out_f.append(h_f)
+            x_b = x[-i-1]
+            h_b, AM_b = self.enc_bw(x_b, h_b, AM_b)
+            out_b.append(h_b)
+        out_b.reverse()
+        out = torch.concat((torch.stack(out_f), torch.stack(out_b)),dim=-1)
+        out = self.Wo(out)
+        if self.input_dim == self.d_model:
+            out = out + x
+        #Concat at channel
+        h = torch.concat((h_f, h_b), dim=-1)
+        #Concat at head
+        AM = torch.concat((AM_f, AM_b), dim=1)
+        return self.norm(out), (h,AM)
+
 class LSAMAE(nn.Module):
-    def __init__(self, d_model=512, nhead=4, num_layers=2, vocab_size=16):
+    def __init__(self, d_model=256, nhead=4, num_layers=2, vocab_size=16):
         super().__init__()
         self.d_model=d_model
         self.vocab_size = vocab_size
         assert d_model%2 == 0
         self.embedding = nn.Embedding(vocab_size, d_model)
-        self.encoder = LSAM(d_model=d_model, nhead=nhead, num_layers=num_layers)
+        #self.encoder = LSAM(d_model=d_model, nhead=nhead, num_layers=num_layers)
+        self.encoder = BLSAM(input_dim=d_model, d_model=d_model, nhead=nhead)
+        self.encoder2 = BLSAM(input_dim=d_model, d_model=d_model, nhead=nhead)
         self.fc = nn.Linear(d_model, vocab_size)
 
     #Batch-first in (N,S), batch-first out (N,C,S)
@@ -285,7 +344,8 @@ class LSAMAE(nn.Module):
 
         src = self.embedding(input2)
 
-        out, hA = self.encoder(src)
+        out, _ = self.encoder(src)
+        out, hA = self.encoder2(out)
         out = self.fc(out).permute(1,2,0)
         if encoder_mode:
             return out, hA[1]
