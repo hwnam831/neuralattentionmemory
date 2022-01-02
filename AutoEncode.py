@@ -162,7 +162,7 @@ if __name__ == '__main__':
         num_layers = 4
     elif args.model_size == 'small':
         dmodel = 512
-        nhead = 4
+        nhead = 8
         num_layers = 4
     elif args.model_size == 'medium':
         dmodel = 512
@@ -224,7 +224,7 @@ if __name__ == '__main__':
 
     trainloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
     valloader   = DataLoader(valset, batch_size=args.batch_size, num_workers=2)
-    optimizer   = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer   = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-3)
     scheduler   = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.97)
     criterion   = nn.CrossEntropyLoss(reduction='none')
     nsamples = len(dataset)

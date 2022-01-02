@@ -49,8 +49,8 @@ class AttentionalMemory(nn.Module):
         S,B = h.size(0), h.size(1)
         k = self.Wk(h).reshape(S,B,self.nhead,-1) #(S,B,n,Dk/n)
         v = self.Wv(h).reshape(S,B,self.nhead,-1) #(S,B,n,Dv/n)
-        #k = self.sigma(k)
-        k = unitelu(k)
+        k = self.sigma(k)
+        #k = unitelu(k)
         A = torch.einsum('sbnq,sbnv->bnvq', k,v)
         q = self.Wq(h).reshape(S,B,self.nhead,-1) #(S,B,n,Dq=Dk/n)
         q = self.sigma(q)
@@ -189,7 +189,7 @@ class AMIBERT(nn.Module):
         else:
             return out
 
-#TODO: lets add bidirectional for fib
+#TODO: Gated AM? Feed AM to next layer?
 class LSAMCell(nn.Module):
     def __init__(self, input_dim, d_model, nhead, sigma=unitnorm):
         super().__init__()
@@ -318,13 +318,34 @@ class BLSAM(nn.Module):
         out_b.reverse()
         out = torch.concat((torch.stack(out_f), torch.stack(out_b)),dim=-1)
         out = self.Wo(out)
-        if self.input_dim == self.d_model:
-            out = out + x
+        #if self.input_dim == self.d_model:
+        #    out = out + x
+        #out = self.norm(out)
         #Concat at channel
         h = torch.concat((h_f, h_b), dim=-1)
         #Concat at head
         AM = torch.concat((AM_f, AM_b), dim=1)
-        return self.norm(out), (h,AM)
+        return out, (h,AM)
+
+class LSAMEncoderLayer(nn.Module):
+    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1):
+        super().__init__()
+        self.attn = BLSAM(input_dim=d_model, d_model=d_model, nhead=nhead)
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+    def forward(self, src):
+        src2, kq = self.attn(src)
+        src = src + self.dropout1(src2)
+        src2 = self.linear2(self.dropout(F.relu(self.linear1(src))))
+        src = src + self.dropout2(src2)
+        src = self.norm2(src)
+        return src, kq
 
 class LSAMAE(nn.Module):
     def __init__(self, d_model=256, nhead=4, num_layers=2, vocab_size=16):
@@ -334,8 +355,10 @@ class LSAMAE(nn.Module):
         assert d_model%2 == 0
         self.embedding = nn.Embedding(vocab_size, d_model)
         #self.encoder = LSAM(d_model=d_model, nhead=nhead, num_layers=num_layers)
-        self.encoder = BLSAM(input_dim=d_model, d_model=d_model, nhead=nhead)
-        self.encoder2 = BLSAM(input_dim=d_model, d_model=d_model, nhead=nhead)
+        #self.encoder = BLSAM(input_dim=d_model, d_model=d_model, nhead=nhead)
+        #self.encoder2 = BLSAM(input_dim=d_model, d_model=d_model, nhead=nhead)
+        self.encoder = LSAMEncoderLayer(d_model=d_model, nhead=nhead)
+        self.encoder2 = LSAMEncoderLayer(d_model=d_model, nhead=nhead)
         self.fc = nn.Linear(d_model, vocab_size)
 
     #Batch-first in (N,S), batch-first out (N,C,S)
