@@ -358,7 +358,8 @@ class LSAMAE(nn.Module):
         #self.encoder = BLSAM(input_dim=d_model, d_model=d_model, nhead=nhead)
         #self.encoder2 = BLSAM(input_dim=d_model, d_model=d_model, nhead=nhead)
         self.encoder = LSAMEncoderLayer(d_model=d_model, nhead=nhead)
-        self.encoder2 = LSAMEncoderLayer(d_model=d_model, nhead=nhead)
+        self.encoder2 = AMEncoderLayer(d_model=d_model, nhead=nhead)
+        self.encoder3 = AMEncoderLayer(d_model=d_model, nhead=nhead)
         self.fc = nn.Linear(d_model, vocab_size)
 
     #Batch-first in (N,S), batch-first out (N,C,S)
@@ -368,7 +369,8 @@ class LSAMAE(nn.Module):
         src = self.embedding(input2)
 
         out, _ = self.encoder(src)
-        out, hA = self.encoder2(out)
+        out, _ = self.encoder2(out)
+        #out, hA = self.encoder3(out)
         out = self.fc(out).permute(1,2,0)
         if encoder_mode:
             return out, hA[1]
