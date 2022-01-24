@@ -13,7 +13,7 @@ def get_args():
             "--net",
             type=str,
             choices=['tf', 'cnn', 'gru', 'lstm', 'xlnet', 'ibert', 'ibertpos', 'ibert2', 'nam', 'linear', 'dnc', 'lsam'],
-            default='tf',
+            default='lsam',
             help='network choices')
     parser.add_argument(
             "--epochs",
@@ -38,7 +38,7 @@ def get_args():
     parser.add_argument(
             "--model_size",
             type=str,
-            default='mini',
+            default='small',
             choices=['tiny','mini','small','medium','base','custom'],
             help='Size of the model based on Google\'s bert configurations')
     parser.add_argument(
@@ -50,7 +50,7 @@ def get_args():
             "--seq_type",
             type=str,
             choices= ['fib', 'arith', 'palin', 'copy', 'ptbc', 'ptbw'],
-            default='copy',
+            default='fib',
             help='fib: fibonacci / arith: arithmetic / palin: palindrome / ptbc: ptb char / ptbw: ptb word')
     parser.add_argument(
             "--lr",

@@ -58,6 +58,38 @@ class AttentionalMemory(nn.Module):
         out = self.Wo(out)
         return out, (k,q)
 
+class GatedAM(nn.Module):
+    def __init__(self, d_model, nhead, sigma=unitnorm):
+        super().__init__()
+        assert d_model % nhead == 0
+        self.nhead = nhead
+        self.Wq = nn.Linear(d_model, d_model)
+        self.Wk = nn.Linear(d_model, d_model)
+        self.Wv = nn.Linear(d_model, d_model)
+        self.Wo = nn.Linear(d_model, d_model)
+        self.Ww = nn.Linear(d_model, nhead)
+        self.Wr = nn.Linear(d_model, nhead)
+        self.sigma = sigma
+        #self.sigma = nn.LayerNorm(d_model//nhead)
+    def forward(self, h):
+        #assuming (S,B,C) layout
+        S,B = h.size(0), h.size(1)
+        k = self.Wk(h).reshape(S,B,self.nhead,-1) #(S,B,n,Dk/n)
+        v = self.Wv(h).reshape(S,B,self.nhead,-1) #(S,B,n,Dv/n)
+        k = self.sigma(k)
+        #k = unitelu(k)
+        w = torch.sigmoid(self.Ww(h)) #(S,B,n)
+
+        A = torch.einsum('sbnq,sbnv->bnvq', k,v*w[:,:,:,None])
+        q = self.Wq(h).reshape(S,B,self.nhead,-1) #(S,B,n,Dq=Dk/n)
+        q = self.sigma(q)
+        
+        r = torch.sigmoid(self.Wr(h))
+        out = torch.einsum('sbnq,bnvq->sbnv',q,A)*r[:,:,:,None]
+        out = out.reshape(S,B,-1)
+        out = self.Wo(out)
+        return out, (k,q)
+
 class LinearAttention(nn.Module):
     def __init__(self, d_model, nhead):
         super().__init__()
@@ -198,7 +230,7 @@ class LSAMCell(nn.Module):
         self.input_dim = input_dim
         self.Wqkv = nn.Linear(d_model+input_dim, d_model*3) # x:h -> q:k:v
         self.Ww = nn.Linear(d_model+input_dim, nhead)
-        
+        self.Wr = nn.Linear(d_model+input_dim, nhead)
         self.sigma = sigma
         self.d_head = d_model//nhead
         self.d_model = d_model
@@ -213,17 +245,20 @@ class LSAMCell(nn.Module):
         k = self.sigma(qkv[:,1])
         v = qkv[:,2]
 
-        #Write probability (gate) per head : [B,n]
+        #RW probability (gate) per head : [B,n]
         w = torch.sigmoid(self.Ww(xh))
-
+        #r = torch.sigmoid(self.Wr(xh))
         #Memory to override. kvT - kv_rT = k(v-v_r)T
         v_r = torch.einsum('bnvq,bnq->bnv', AM,k)
-        A_w = torch.einsum('bnq,bnv->bnvq', k,(v-v_r))
+        vp = w[:,:,None]*(v-v_r)
+        A_w = torch.einsum('bnq,bnv->bnvq', k,vp)
 
         #update AM using write gates
-        AM = AM + w[:,:,None,None] * A_w
+        AM = AM + A_w
 
-        h = torch.einsum('bnvq,bnq->bnv', AM,q).reshape(B,-1)
+        #gated read
+        h = torch.einsum('bnvq,bnq->bnv', AM,q)#*r[:,:,None]
+        h = h.reshape(B,-1)
 
         return h, AM
 
@@ -346,7 +381,7 @@ class LSAMEncoderLayer(nn.Module):
         src = src + self.dropout2(src2)
         src = self.norm2(src)
         return src, kq
-
+#TODO: LSAM decoder
 class LSAMAE(nn.Module):
     def __init__(self, d_model=256, nhead=4, num_layers=2, vocab_size=16):
         super().__init__()
@@ -359,7 +394,7 @@ class LSAMAE(nn.Module):
         #self.encoder2 = BLSAM(input_dim=d_model, d_model=d_model, nhead=nhead)
         self.encoder = LSAMEncoderLayer(d_model=d_model, nhead=nhead)
         self.encoder2 = AMEncoderLayer(d_model=d_model, nhead=nhead)
-        self.encoder3 = AMEncoderLayer(d_model=d_model, nhead=nhead)
+        #self.encoder3 = AMEncoderLayer(d_model=d_model, nhead=nhead)
         self.fc = nn.Linear(d_model, vocab_size)
 
     #Batch-first in (N,S), batch-first out (N,C,S)
@@ -368,8 +403,8 @@ class LSAMAE(nn.Module):
 
         src = self.embedding(input2)
 
-        out, _ = self.encoder(src)
-        out, _ = self.encoder2(out)
+        out, hA = self.encoder(src)
+        out, hA = self.encoder2(out)
         #out, hA = self.encoder3(out)
         out = self.fc(out).permute(1,2,0)
         if encoder_mode:
