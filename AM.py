@@ -305,6 +305,32 @@ class LSAM(nn.Module):
         out = self.Wo(out) + x
         return self.norm(out), (h,AM)
 
+class LSAMDecoder(nn.Module):
+    def __init__(self, input_dim, d_model, nhead, sigma=unitnorm, activation = nn.ReLU(), drop=0.1):
+        super().__init__()
+        assert d_model % nhead == 0
+        self.nhead = nhead
+        self.encoder = LSAMCell(input_dim=input_dim, d_model=d_model, nhead=nhead)
+        
+        self.sigma = sigma
+        self.d_head = d_model//nhead
+        self.d_model = d_model
+        self.Wo = nn.Sequential(nn.Linear(d_model, d_model),
+                                nn.Dropout(drop), activation)
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, x, hA):
+        #assuming (S,B,C) layout
+        B = x.size(1)
+        h,AM = hA
+        out = []
+        for x_i in x:
+            h, AM = self.encoder(x_i, h, AM)
+            out.append(h)
+        out = torch.stack(out)
+        out = self.Wo(out)
+        return self.norm(out), (h,AM)
+
 class BLSAM(nn.Module):
     def __init__(self, input_dim, d_model, nhead, sigma=unitnorm, activation = nn.ReLU(), drop=0.1):
         super().__init__()
@@ -395,6 +421,7 @@ class LSAMAE(nn.Module):
         self.encoder = LSAMEncoderLayer(d_model=d_model, nhead=nhead)
         self.encoder2 = AMEncoderLayer(d_model=d_model, nhead=nhead)
         #self.encoder3 = AMEncoderLayer(d_model=d_model, nhead=nhead)
+        self.decoder = LSAMDecoder(input_dim=d_model, d_model=d_model, nhead=nhead)
         self.fc = nn.Linear(d_model, vocab_size)
 
     #Batch-first in (N,S), batch-first out (N,C,S)
@@ -404,7 +431,8 @@ class LSAMAE(nn.Module):
         src = self.embedding(input2)
 
         out, hA = self.encoder(src)
-        out, hA = self.encoder2(out)
+        out, hA = self.decoder(out, hA)
+        #out, hA = self.encoder2(out)
         #out, hA = self.encoder3(out)
         out = self.fc(out).permute(1,2,0)
         if encoder_mode:
