@@ -10,7 +10,6 @@ import IBERT2
 from NSPDataset import NSPDatasetAE, NSPDatasetAE2, StringDataset, Token, fib, arith, palindrome, copy
 from PTBCDataset import PTBCDataset
 from PTBWDataset import PTBWDataset
-from AttentionMatrix import AMEncoder, AMIBERT, LinearAttention, RecurrentAM
 import AM
 from torch.utils.data import Dataset, DataLoader
 import time
@@ -121,7 +120,11 @@ def logger(args, timestamp, epoch, contents):
             fd.write('\n')
 
 if __name__ == '__main__':
-    
+    # The flag below controls whether to allow TF32 on matmul. This flag defaults to True.
+    #torch.backends.cuda.matmul.allow_tf32 = False
+
+    # The flag below controls whether to allow TF32 on cuDNN. This flag defaults to True.
+    #torch.backends.cudnn.allow_tf32 = False
     args = Options.get_args()
 
     if args.seq_type == 'fib':
@@ -134,11 +137,11 @@ if __name__ == '__main__':
         dataset     = StringDataset(args.seq_type, args.digits, size=args.train_size)
         valset      = StringDataset(args.seq_type, args.digits+4, args.digits+1, size=args.validation_size)
     elif args.seq_type == 'ptbc':
-        dataset     = PTBCDataset('train', minSeq = 16, maxSeq = 192) 
-        valset      = PTBCDataset('train', minSeq = 192, maxSeq = 224) 
+        dataset     = PTBCDataset('train', minSeq = 16, maxSeq = 512) 
+        valset      = PTBCDataset('valid', minSeq = 16, maxSeq = 512) 
     elif args.seq_type == 'ptbw':
-        dataset     = PTBWDataset('train', minSeq = 2, maxSeq = 32) 
-        valset      = PTBWDataset('train', minSeq = 32, maxSeq = 64) 
+        dataset     = PTBWDataset('train', minSeq = 2, maxSeq = 64) 
+        valset      = PTBWDataset('valid', minSeq = 2, maxSeq = 64) 
     else :
         print('Sequence type {} not supported yet'.format(args.seq_type))
         exit()
@@ -198,7 +201,7 @@ if __name__ == '__main__':
         model = IBERT.IBERTPosAE(dmodel, vocab_size = vocab_size, num_layers=num_layers, nhead=nhead).cuda()
     elif args.net == 'ibert2':
         print('Executing Autoencoder model with IBERT2\'s Architecture')
-        model = AMIBERT(dmodel, vocab_size = vocab_size, nhead=nhead, num_layers=num_layers).cuda()
+        model = AM.AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size, attn=AM.GatedAM).cuda()
     elif args.net == 'gru':
         print('Executing Autoencoder model with GRU w.o. Attention')
         model = Models.GRUAE(dmodel, vocab_size = vocab_size).cuda()
@@ -207,10 +210,10 @@ if __name__ == '__main__':
         model = IBERT.LSTMAE(dmodel, vocab_size = vocab_size).cuda()
     elif args.net == 'nam':
         print('Executing NAM Autoencoder model')
-        model = AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size, attn=RecurrentAM).cuda()
+        model = AM.AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size).cuda()
     elif args.net == 'linear':
         print('Executing Linear Attention Autoencoder model')
-        model = AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size, attn=LinearAttention).cuda()
+        model = AM.AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size, attn=LinearAttention).cuda()
     elif args.net == 'dnc':
         print('Executing DNC model')
         model = Models.DNCAE(dmodel, nhead, vocab_size=vocab_size).cuda()
@@ -221,9 +224,9 @@ if __name__ == '__main__':
         print('Network {} not supported'.format(args.net))
         exit()
     print(model)
-
-    trainloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=4)
-    valloader   = DataLoader(valset, batch_size=args.batch_size, num_workers=2)
+    print("Parameter count: {}".format(Options.count_params(model)))
+    trainloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=8)
+    valloader   = DataLoader(valset, batch_size=args.batch_size, num_workers=4)
     optimizer   = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler   = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.97)
     criterion   = nn.CrossEntropyLoss(reduction='none')
@@ -232,6 +235,7 @@ if __name__ == '__main__':
     if args.log == 'true':
         ts = time.gmtime()
         logger(args, ts, 0, str(model))
+        logger(args, ts, 0, "Parameter count: {}".format(Options.count_params(model)))
     for e in range(args.epochs):
         print('\nEpoch #{}:'.format(e+1))
         

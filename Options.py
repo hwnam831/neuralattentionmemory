@@ -5,6 +5,11 @@ import torch
 import os
 import argparse
 
+def count_params(model):
+    cnt = 0
+    for p in model.parameters():
+        cnt += p.numel()
+    return cnt
 
 def get_args():
     """Get all the args"""
@@ -18,7 +23,7 @@ def get_args():
     parser.add_argument(
             "--epochs",
             type=int,
-            default='50',
+            default='100',
             help='number of epochs')
     parser.add_argument(
             "--train_size",
@@ -33,7 +38,7 @@ def get_args():
     parser.add_argument(
             "--batch_size",
             type=int,
-            default='128',
+            default='64',
             help='batch size')
     parser.add_argument(
             "--model_size",
@@ -44,7 +49,7 @@ def get_args():
     parser.add_argument(
             "--digits",
             type=int,
-            default='8',
+            default='12',
             help='Max number of digits')
     parser.add_argument(
             "--seq_type",
@@ -55,7 +60,7 @@ def get_args():
     parser.add_argument(
             "--lr",
             type=float,
-            default=2e-4,
+            default=5e-5,
             help='Default learning rate')
     parser.add_argument(
             "--log",

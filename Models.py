@@ -28,7 +28,7 @@ class TfS2S(nn.Module):
         return self.decoder(tgt, memory).permute(1,2,0)
 
 class TfAE(nn.Module):
-    def __init__(self, model_size=512, nhead=4, num_layers=6, maxlen=256, vocab_size=16):
+    def __init__(self, model_size=512, nhead=4, num_layers=6, maxlen=512, vocab_size=16):
         super().__init__()
         self.model_size=model_size
         self.maxlen=maxlen

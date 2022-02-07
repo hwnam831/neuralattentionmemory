@@ -41,6 +41,7 @@ class AttentionalMemory(nn.Module):
         self.Wq = nn.Linear(d_model, d_model)
         self.Wk = nn.Linear(d_model, d_model)
         self.Wv = nn.Linear(d_model, d_model)
+
         self.Wo = nn.Linear(d_model, d_model)
         self.sigma = sigma
         #self.sigma = nn.LayerNorm(d_model//nhead)
@@ -74,6 +75,7 @@ class GatedAM(nn.Module):
     def forward(self, h):
         #assuming (S,B,C) layout
         S,B = h.size(0), h.size(1)
+        
         k = self.Wk(h).reshape(S,B,self.nhead,-1) #(S,B,n,Dk/n)
         v = self.Wv(h).reshape(S,B,self.nhead,-1) #(S,B,n,Dv/n)
         k = self.sigma(k)
@@ -136,7 +138,7 @@ class AMEncoderLayer(nn.Module):
         return src, kq
 
 class AMEncoder(nn.Module):
-    def __init__(self, d_model=512, nhead=4, num_layers=6, maxlen=256, vocab_size=16, attn=AttentionalMemory):
+    def __init__(self, d_model=512, nhead=4, num_layers=6, maxlen=512, vocab_size=16, attn=AttentionalMemory):
         super().__init__()
         self.d_model=d_model
         self.maxlen=maxlen
@@ -164,7 +166,7 @@ class AMEncoder(nn.Module):
         input2 = input.permute(1,0)
         ipos = torch.arange(input2.size(0), device=input.device)[:,None].expand(input2.shape[:2])
         h = self.embedding(input2)
-        #h = h + self.posembed(ipos)
+        h = h + self.posembed(ipos)
         for layer in self.encoder:
             h, kq = layer(h)
         #out = torch.cat(out,dim=-1)
@@ -247,7 +249,7 @@ class LSAMCell(nn.Module):
 
         #RW probability (gate) per head : [B,n]
         w = torch.sigmoid(self.Ww(xh))
-        #r = torch.sigmoid(self.Wr(xh))
+        
         #Memory to override. kvT - kv_rT = k(v-v_r)T
         v_r = torch.einsum('bnvq,bnq->bnv', AM,k)
         vp = w[:,:,None]*(v-v_r)
@@ -255,9 +257,10 @@ class LSAMCell(nn.Module):
 
         #update AM using write gates
         AM = AM + A_w
-
+        
         #gated read
-        h = torch.einsum('bnvq,bnq->bnv', AM,q)#*r[:,:,None]
+        r = torch.sigmoid(self.Wr(xh))
+        h = torch.einsum('bnvq,bnq->bnv', AM,q)*r[:,:,None]
         h = h.reshape(B,-1)
 
         return h, AM
