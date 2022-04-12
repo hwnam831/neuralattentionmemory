@@ -89,9 +89,7 @@ If you choose to log the experiment results, they will be saved in the directory
 
 ### TODO
 
-- Add test dataset (2 digits)
+- CTC?
+- LSAM in reduction?
 - Add model save/load
-- Try LSAM on listops
-- Long Range Arena add AM
-- Refactoring
 - S2S version of fib/arith
