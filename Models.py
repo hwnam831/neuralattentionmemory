@@ -1,20 +1,53 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from Encoder import TFEncoder, CNNEncoder, XLNetEncoderLayer
-from Decoder import TFDecoder
+from Encoder import CNNEncoder, XLNetEncoderLayer
 from dnc.dnc import DNC
 
+class TFEncoder(nn.Module):
+    def __init__(self, model_size=512, nhead=2, num_layers=3):
+        super().__init__()
+        self.model_size=model_size
+        self.enclayer = nn.TransformerEncoderLayer(d_model=model_size, nhead=nhead)
+        self.encoder = nn.TransformerEncoder(self.enclayer, \
+            num_layers=num_layers)
+    #Seq-first in-out (S,N,C)
+    def forward(self, src):
+        memory = self.encoder(src)
+        return memory
+
+class TFDecoder(nn.Module):
+    def __init__(self, model_size=512, tgt_vocab_size=16, nhead=2, num_layers=3):
+        super().__init__()
+        self.model_size=model_size
+        self.declayer = nn.TransformerDecoderLayer(d_model=model_size, nhead=nhead)
+        self.decoder = nn.TransformerDecoder(self.declayer, num_layers=num_layers)
+        self.fc = nn.Linear(model_size, tgt_vocab_size)
+    #Seq-first in (S,N,C), batch-first out (N,C,S)
+    def forward(self, target, memory):
+        tmask = self.generate_square_subsequent_mask(target.size(0)).to(target.device)
+        out = self.decoder(target, memory, tgt_mask=tmask)
+        return self.fc(out)
+    def generate_square_subsequent_mask(self, sz):
+        """Generate a square mask for the sequence. The masked positions are filled with float('-inf').
+            Unmasked positions are filled with float(0.0).
+        """
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
 
 class TfS2S(nn.Module):
-    def __init__(self, model_size=512, maxlen=256):
+    def __init__(self, model_size=512, maxlen=256, nhead=4, num_layers=6, vocab_size = 256, tgt_vocab_size=10):
         super().__init__()
         self.model_size=model_size
         self.maxlen=maxlen
-        self.embedding = nn.Embedding(16, model_size)
+        self.embedding = nn.Embedding(vocab_size, model_size)
+        self.tgt_emb = nn.Embedding(tgt_vocab_size, model_size)
+            
         self.posembed = nn.Embedding(maxlen, model_size)
-        self.encoder = TFEncoder(model_size, nhead=2, num_layers=3)
-        self.decoder = TFDecoder(model_size, 16)
+        self.encoder = TFEncoder(model_size, nhead=nhead, num_layers=num_layers)
+        self.decoder = TFDecoder(model_size, tgt_vocab_size, nhead=nhead, num_layers=num_layers)
+        
     #Batch-first in (N,S), batch-first out (N,C,S)
     def forward(self, input, target):
         input2 = input.permute(1,0)
@@ -23,7 +56,7 @@ class TfS2S(nn.Module):
         tpos = torch.arange(target2.size(0), device=target.device)[:,None].expand(target2.shape)
 
         src = self.embedding(input2) + self.posembed(ipos)
-        tgt = self.embedding(target2)+ self.posembed(tpos)
+        tgt = self.tgt_emb(target2)+ self.posembed(tpos)
         memory = self.encoder(src)
         return self.decoder(tgt, memory).permute(1,2,0)
 
@@ -154,3 +187,58 @@ class DNCAE(nn.Module):
     def forward(self, input):
         src = self.cell(self.embedding(input))[0] #N, S, C
         return self.fc(src).permute(0,2,1)
+
+# From https://github.com/pytorch/fairseq/blob/master/fairseq/models/lstm.py
+class AttentionLayer(nn.Module):
+    def __init__(self, input_embed_dim, source_embed_dim, output_embed_dim, bias=False):
+        super().__init__()
+
+        self.input_proj = nn.Linear(input_embed_dim, source_embed_dim, bias=bias)
+        self.output_proj = nn.Linear(input_embed_dim + source_embed_dim, output_embed_dim, bias=bias)
+
+    def forward(self, input, source_hids):
+        # input: tgtlen x bsz x input_embed_dim
+        # source_hids: srclen x bsz x source_embed_dim
+
+        # x: bsz x source_embed_dim
+        x = self.input_proj(input)
+
+        # compute attention
+        #attn_scores = (source_hids * x.unsqueeze(0)).sum(dim=2)
+        attn_scores = torch.einsum('sbh,tbh->tsb', source_hids, x)
+
+        attn_scores = F.softmax(attn_scores, dim=1)  # srclen x bsz
+
+        # sum weighted sources
+        #x = (attn_scores.unsqueeze(2) * source_hids).sum(dim=0)
+        x = torch.einsum('tsb, sbh->tbh',attn_scores, source_hids)
+
+        x = torch.tanh(self.output_proj(torch.cat((x, input), dim=-1)))
+        return x, attn_scores
+
+class LSTMS2S(nn.Module):
+    def __init__(self, model_size, num_layers=2, vocab_size=16, tgt_vocab_size=16, bidirectional=True):
+        super().__init__()
+        
+        self.model_size = model_size
+        self.embed = nn.Embedding(vocab_size, self.model_size)
+        self.tgt_emb = nn.Embedding(tgt_vocab_size, model_size)
+        assert num_layers > 1
+        if bidirectional:
+            assert model_size %2 == 0
+            self.encoder = nn.LSTM(self.model_size, self.model_size//2, num_layers=num_layers//2, bidirectional=True)
+            self.decoder = nn.LSTM(self.model_size, self.model_size, num_layers=num_layers//2, bidirectional=False)
+        else:
+            self.encoder = nn.LSTM(self.model_size, self.model_size, num_layers=num_layers//2, bidirectional=False)
+            self.decoder = nn.LSTM(self.model_size, self.model_size, num_layers=num_layers//2, bidirectional=False)
+        self.dropout = nn.Dropout(0.1)
+        self.attn = AttentionLayer(model_size, model_size, model_size)
+        self.fc = nn.Linear(model_size, tgt_vocab_size)
+
+    def forward(self, input, tgt):
+        outputs = self.dropout(self.embed(input.permute(1,0)))
+        outputs, state = self.encoder(outputs)
+        tgt_hid = self.tgt_emb(tgt.permute(1,0)) #N,S -> S,N,C
+        outputs, _ = self.attn(tgt_hid, outputs)
+        outputs, state = self.decoder(self.dropout(outputs))
+        return self.fc(self.dropout(outputs)).permute(1,2,0)
