@@ -49,12 +49,12 @@ def get_args():
     parser.add_argument(
             "--digits",
             type=int,
-            default='12',
+            default='8',
             help='Max number of digits')
     parser.add_argument(
             "--seq_type",
             type=str,
-            choices= ['fib', 'arith', 'palin', 'copy', 'ptbc', 'ptbw'],
+            choices= ['fib', 'arith', 'palin', 'copy', 'ptbc', 'ptbw', 'scan', 'reduce'],
             default='fib',
             help='fib: fibonacci / arith: arithmetic / palin: palindrome / ptbc: ptb char / ptbw: ptb word')
     parser.add_argument(

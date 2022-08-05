@@ -341,8 +341,10 @@ class BLSAM(nn.Module):
         assert d_model % 2 == 0
         assert nhead % 2 == 0
         self.nhead = nhead
-        self.enc_fw = LSAMCell(input_dim=input_dim, d_model=d_model//2, nhead=nhead//2)
-        self.enc_bw = LSAMCell(input_dim=input_dim, d_model=d_model//2, nhead=nhead//2)
+        fw_module = LSAMCell(input_dim=input_dim, d_model=d_model//2, nhead=nhead//2)
+        bw_module = LSAMCell(input_dim=input_dim, d_model=d_model//2, nhead=nhead//2)
+        self.enc_fw = torch.jit.script(fw_module)
+        self.enc_bw = torch.jit.script(bw_module)
         self.input_dim = input_dim
         self.sigma = sigma
         self.d_head = d_model//nhead

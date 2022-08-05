@@ -268,6 +268,42 @@ class StringDataset(Dataset):
 
         return self.inputs[idx], self.targets[idx]
 
+class ReductionDatasetAE(Dataset):
+    def __init__(self, maxdigits, mindigits=1, size=6400):
+        assert maxdigits > mindigits
+        self.maxdigits = maxdigits
+        self.mindigits = mindigits
+        self.size = size
+        #vocab: [0-9],<PAD>,<MASK>,<EOS>
+        self.vocab_size = 13
+        self.inputs = np.ones([size, self.maxdigits*2+1], dtype=np.int64)*10
+        self.targets = np.ones([size, self.maxdigits*2+1], dtype=np.int64)*10
+        for idx in range(size):
+            seqlen = ((self.maxdigits-self.mindigits+1)*idx)//self.size + self.mindigits
+            #seqlen = self.maxdigits
+            #seqlen = np.random.randint(ndigits, self.maxdigits+1)
+            #nonzeros = np.random.randint(self.mindigits, self.maxdigits)
+            nonzeros = np.random.randint(self.mindigits, seqlen+1)
+            nzidxs = np.random.permutation(np.arange(seqlen))[:nonzeros]
+            seq = [0 for _ in range(seqlen)]
+            for ni in nzidxs:
+                seq[ni] = np.random.randint(1,10)
+            for i in range(seqlen):
+                self.inputs[idx][i] = seq[i]
+                self.targets[idx][i] = seq[i]
+            self.inputs[idx][seqlen] =  12 #<EOS>
+            self.targets[idx][seqlen] =  12 #<EOS>
+            tidx = seqlen+1
+            for s in seq:
+                if s > 0:
+                    self.targets[idx][tidx] = s
+                    tidx = tidx+1
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        return self.inputs[idx], self.targets[idx]
+
 def printseq(x,y):
     tokenmap = ['0','1','2','3','4','5','6','7','8','9','_',' ','S','E','M','C']
     print("input:")
@@ -287,7 +323,8 @@ if __name__ == '__main__':
     
     #dataset = NSPDatasetAE2(copy,5,1, numbers=2)
     # dataset = NSPDatasetS2S(fib,2,1, numbers=1)
-    dataset = StringDataset('copy', 5, 1, size=256)
+    #dataset = StringDataset('copy', 5, 1, size=256)
+    dataset = ReductionDatasetAE(12,8,size=512)
     loader = DataLoader(dataset, batch_size=4)
     for i in range(10):
         idx = np.random.randint(0,len(dataset))

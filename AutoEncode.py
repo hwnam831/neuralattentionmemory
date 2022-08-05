@@ -7,9 +7,10 @@ import Options
 import Models
 import IBERT
 import IBERT2
-from NSPDataset import NSPDatasetAE, NSPDatasetAE2, StringDataset, Token, fib, arith, palindrome, copy
+from NSPDataset import ReductionDatasetAE, NSPDatasetAE2, StringDataset, Token, fib, arith, palindrome, copy
 from PTBCDataset import PTBCDataset
 from PTBWDataset import PTBWDataset
+from SCANDataset import SCANDatasetAE
 import AM
 from torch.utils.data import Dataset, DataLoader
 import time
@@ -158,9 +159,15 @@ if __name__ == '__main__':
         dataset     = PTBWDataset('train', minSeq = 2, maxSeq = 64) 
         valset      = PTBWDataset('valid', minSeq = 2, maxSeq = 64) 
         testset      = PTBWDataset('test', minSeq = 2, maxSeq = 64) 
-    else :
-        print('Sequence type {} not supported yet'.format(args.seq_type))
-        exit()
+    elif args.seq_type == 'scan':
+        dataset     = SCANDatasetAE('SCAN/length_split/tasks_train_length.txt') 
+        valset      = SCANDatasetAE('SCAN/simple_split/tasks_test_simple.txt') 
+        testset      = SCANDatasetAE('SCAN/length_split/tasks_test_length.txt') 
+    elif args.seq_type == 'reduce':
+        dataset     = ReductionDatasetAE(args.digits, size=args.train_size)
+        valset      = ReductionDatasetAE(args.digits, size=args.validation_size) 
+        testset      = ReductionDatasetAE(args.digits+8, args.digits+1, size=args.validation_size) 
+
 
     if args.seq_type == 'ptbc': 
         vocab_size = dataset.vocab_size
@@ -168,6 +175,11 @@ if __name__ == '__main__':
     elif args.seq_type == 'ptbw': 
         vocab_size = dataset.vocab_size
         dictionary = dataset.wordtoix
+    elif args.seq_type == 'scan': 
+        vocab_size = dataset.vocab_size
+        dictionary = dataset.wordtoix
+    elif args.seq_type == 'reduce': 
+        vocab_size = dataset.vocab_size
     else:
         vocab_size = 16
 
@@ -241,9 +253,10 @@ if __name__ == '__main__':
         exit()
     print(model)
     print("Parameter count: {}".format(Options.count_params(model)))
-    trainloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=8)
-    valloader   = DataLoader(valset, batch_size=args.batch_size, num_workers=4)
-    testloader   = DataLoader(testset, batch_size=args.batch_size, num_workers=4)
+    col_fn = SCANDatasetAE.collate_batch if args.seq_type == 'scan' else None
+    trainloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, collate_fn=col_fn)
+    valloader   = DataLoader(valset, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
+    testloader   = DataLoader(testset, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
     optimizer   = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler   = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.97)
     criterion   = nn.CrossEntropyLoss(reduction='none')
