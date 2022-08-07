@@ -168,7 +168,7 @@ class GRUAE(nn.Module):
         return self.fc(src).permute(1,2,0)
 
 class DNCAE(nn.Module):
-    def __init__(self, model_size=64, nhead=4, vocab_size=16):
+    def __init__(self, model_size=64, nhead=4, nr_cells=32, vocab_size=16):
         super().__init__()
         self.model_size=model_size
         self.vocab_size = vocab_size
@@ -177,9 +177,9 @@ class DNCAE(nn.Module):
             hidden_size=model_size,
             batch_first=True,
             bidirectional=False,
-            nr_cells=5,
+            nr_cells=nr_cells,
             read_heads=nhead,
-            cell_size=10,
+            cell_size=model_size,
             gpu_id=0,
         )
         self.fc = nn.Linear(model_size, vocab_size)
@@ -187,6 +187,61 @@ class DNCAE(nn.Module):
     def forward(self, input):
         src = self.cell(self.embedding(input))[0] #N, S, C
         return self.fc(src).permute(0,2,1)
+
+class DNCS2Q(nn.Module):
+    def __init__(self, model_size=64, nhead=2, nr_cells=32, vocab_size=16):
+        super().__init__()
+        self.model_size=model_size
+        self.vocab_size = vocab_size
+        self.embedding = nn.Embedding(vocab_size, model_size)
+        self.cell = DNC(input_size=model_size,
+            hidden_size=model_size,
+            batch_first=True,
+            bidirectional=False,
+            nr_cells=nr_cells,
+            read_heads=nhead,
+            cell_size=model_size,
+            gpu_id=0,
+        )
+        self.fc = nn.Linear(model_size, vocab_size)
+    #Batch-first in (N,S), batch-first out (N,C,S)
+    def forward(self, input):
+        src, states = self.cell(self.embedding(input)) #N, S, C
+        mem = states[1]['memory'] #N, M, C
+        return self.fc(mem).permute(0,2,1)
+
+class DNCS2S(nn.Module):
+    def __init__(self, model_size=64, nhead=2, nr_cells=32, vocab_size=16):
+        super().__init__()
+        self.model_size=model_size
+        self.vocab_size = vocab_size
+        self.embedding = nn.Embedding(vocab_size, model_size)
+        self.tgt_embedding = nn.Embedding(vocab_size, model_size)
+        self.encoder = DNC(input_size=model_size,
+            hidden_size=model_size,
+            batch_first=True,
+            bidirectional=False,
+            nr_cells=nr_cells,
+            read_heads=nhead,
+            cell_size=model_size,
+            gpu_id=0,
+        )
+        self.decoder = DNC(input_size=model_size,
+            hidden_size=model_size,
+            batch_first=True,
+            bidirectional=False,
+            nr_cells=nr_cells,
+            read_heads=nhead,
+            cell_size=model_size,
+            gpu_id=0,
+        )
+        self.fc = nn.Linear(model_size, vocab_size)
+    #Batch-first in (N,S), batch-first out (N,C,S)
+    def forward(self, input, tgt):
+        src, hx = self.encoder(self.embedding(input)) #N, S, C
+        out, _ = self.decoder(self.tgt_embedding(tgt), (None, hx[1], None))
+        #mem = hx[1]['memory'] #N, M, C
+        return self.fc(out).permute(0,2,1)
 
 # From https://github.com/pytorch/fairseq/blob/master/fairseq/models/lstm.py
 class AttentionLayer(nn.Module):

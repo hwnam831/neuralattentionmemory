@@ -4,9 +4,10 @@ import torch.nn.functional as F
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
-from Models import LSTMS2S, TfAE
+from Models import LSTMS2S, DNCS2S
 import argparse
 import Options
+import AM
 
 VOCAB_SIZE=10
 
@@ -135,8 +136,9 @@ class Seq2Queue(nn.Module):
         return self.decoder(out)
 
 class NAMTuring(nn.Module):
-    def __init__(self, model_size, tgt_vocab_size=10):
+    def __init__(self, model_size, tgt_vocab_size=10, default_tsize=32):
         super().__init__()
+        self.default_tsize = default_tsize
         self.model_size=model_size
         # (push, no-op)
         self.directionlayer = nn.Linear(self.model_size, 3)
@@ -147,8 +149,9 @@ class NAMTuring(nn.Module):
                                     nn.Linear(self.model_size, tgt_vocab_size))
     #Seq-first in (S,N,C), seq-first out (S,N,C)
     #Stack: initial stack state (zeros or null embeddings)
-    def forward(self, values, tsize):
+    def forward(self, values, tsize=-1):
         #(L,N,C)
+        tsize = self.default_tsize if tsize <= 0 else tsize
         tape = torch.zeros([tsize, values.shape[1], values.shape[-1]],
                             dtype=values.dtype, device=values.device)
         #(L,N)
@@ -216,13 +219,13 @@ if __name__ == '__main__':
     parser.add_argument(
             "--net",
             type=str,
-            choices=['tf', 'lstm', 'nam', 'turing'],
+            choices=['tf', 'lstm', 'nam', 'turing', 'dnc', 'lsam'],
             default='turing',
             help='network choices')
     args = parser.parse_args()
-    trainset = BinaryReductionDataset(24,2, size=25600)
-    valset = BinaryReductionDataset(28,25, size=2048)
-    testset = BinaryReductionDataset(28,25, size=2048)
+    trainset = BinaryReductionDataset(12,2, size=25600)
+    valset = BinaryReductionDataset(12,8, size=2048)
+    testset = BinaryReductionDataset(20,12, size=2048)
 
     trainloader = DataLoader(trainset, batch_size=args.batch_size, num_workers=4, shuffle=True)
     valloader = DataLoader(valset, batch_size=args.batch_size, num_workers=4)
@@ -233,6 +236,10 @@ if __name__ == '__main__':
         model       = LSTMS2S(768, num_layers=2, vocab_size=256, tgt_vocab_size=11).cuda()
     elif args.net == 'turing':
         model       = QueueReducer(512, maxlen=64, max_tokens=64, tgt_vocab_size=11, queue=NAMTuring).cuda()
+    elif args.net == 'dnc':
+        model       = DNCS2S(512, nr_cells = 32, vocab_size=11).cuda()
+    elif args.net == 'lsam':
+        model       = AM.LSAMS2S(512, nhead = 4, vocab_size=11).cuda()
     else:
         model       = QueueReducer(256, maxlen=64, max_tokens=64, tgt_vocab_size=11).cuda()
     print(model)

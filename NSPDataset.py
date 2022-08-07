@@ -288,12 +288,13 @@ class ReductionDatasetAE(Dataset):
             seq = [0 for _ in range(seqlen)]
             for ni in nzidxs:
                 seq[ni] = np.random.randint(1,10)
+            offset = np.random.randint(0, self.maxdigits-seqlen+1)
             for i in range(seqlen):
-                self.inputs[idx][i] = seq[i]
-                self.targets[idx][i] = seq[i]
-            self.inputs[idx][seqlen] =  12 #<EOS>
-            self.targets[idx][seqlen] =  12 #<EOS>
-            tidx = seqlen+1
+                self.inputs[idx][i+offset] = seq[i]
+                #self.targets[idx][i+offset] = seq[i]
+            self.inputs[idx][seqlen+offset] =  12 #<EOS>
+            self.targets[idx][seqlen+offset] =  12 #<EOS>
+            tidx = seqlen+1+offset
             for s in seq:
                 if s > 0:
                     self.targets[idx][tidx] = s

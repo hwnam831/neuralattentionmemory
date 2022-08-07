@@ -17,7 +17,7 @@ def get_args():
     parser.add_argument(
             "--net",
             type=str,
-            choices=['tf', 'cnn', 'gru', 'lstm', 'xlnet', 'ibert', 'ibertpos', 'ibert2', 'nam', 'linear', 'dnc', 'lsam'],
+            choices=['tf', 'cnn', 'gru', 'lstm', 'xlnet', 'ibert', 'ibertpos', 'ibert2', 'nam', 'linear', 'dnc', 'lsam', 'namtm'],
             default='lsam',
             help='network choices')
     parser.add_argument(
@@ -43,7 +43,7 @@ def get_args():
     parser.add_argument(
             "--model_size",
             type=str,
-            default='small',
+            default='custom',
             choices=['tiny','mini','small','medium','base','custom'],
             help='Size of the model based on Google\'s bert configurations')
     parser.add_argument(

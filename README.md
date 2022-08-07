@@ -42,15 +42,13 @@ python3 AutoEncode.py --net ibert --seq_type ptbw --epochs 100
 ### TODO
 
 - CTC?
-- LSAM in reduction?
 - Add model save/load
-- S2S version of fib/arith
-- ID val / OOD Test
 
 ### AE tasks - LSAM?
 - SCAN length
 - NSP
 
 ## S2S tasks
-- Multi 
+- SCAN S2S
 - NSP S2S
+- Multiply?

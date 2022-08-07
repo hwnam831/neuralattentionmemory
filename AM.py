@@ -1,3 +1,6 @@
+from http.client import responses
+from ssl import RAND_pseudo_bytes
+from unicodedata import bidirectional
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -444,3 +447,131 @@ class LSAMAE(nn.Module):
             return out, hA[1]
         else:
             return out
+
+class LSAMS2S(nn.Module):
+    def __init__(self, d_model=256, nhead=4, vocab_size=16):
+        super().__init__()
+        self.d_model=d_model
+        self.vocab_size = vocab_size
+        assert d_model%2 == 0
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.tgt_embedding = nn.Embedding(vocab_size, d_model)
+        self.encoder = LSAMEncoderLayer(d_model=d_model, nhead=nhead)
+        self.decoder = LSAMDecoder(input_dim=d_model, d_model=d_model, nhead=nhead)
+        self.fc = nn.Linear(d_model, vocab_size)
+
+    #Batch-first in (N,S), batch-first out (N,C,S)
+    def forward(self, input, tgt, encoder_mode=False):
+        input2 = input.permute(1,0)
+
+        src = self.embedding(input2)
+        tsrc = self.tgt_embedding(tgt.permute(1,0))
+        out, hA = self.encoder(src)
+        out, hA = self.decoder(tsrc, hA)
+        #out, hA = self.encoder2(out)
+        #out, hA = self.encoder3(out)
+        out = self.fc(out).permute(1,2,0)
+        if encoder_mode:
+            return out, hA[1]
+        else:
+            return out
+
+
+class NAMTuring(nn.Module):
+    def __init__(self,in_dim, hidden_dim, n_tapes=2):
+        super().__init__()
+        assert hidden_dim%n_tapes == 0
+        self.dim=hidden_dim//n_tapes
+        self.in_dim = in_dim
+        self.n_tapes = n_tapes
+        # (prev, next, no-op)
+        #direction layers for read/write heads
+        #action: (read_direction(3), write_direction(3), rwprob(2))
+        self.actionlayer = nn.LSTM(self.in_dim, 8*self.n_tapes, 1, bidirectional=False)
+        self.valuelayer = nn.Linear(self.in_dim, self.dim*self.n_tapes)
+        self.outlayer = nn.Linear(hidden_dim,hidden_dim)
+        
+    #Seq-first in (S,N,C), seq-first out (S,N,C)
+    #Stack: initial stack state (zeros or null embeddings)
+    def forward(self, inputs, tapelen, tape_in=None, pos_in=None):
+        seqlen = inputs.shape[0]
+        batchsize = inputs.shape[1]
+
+        values = self.valuelayer(inputs).reshape(seqlen, batchsize, self.n_tapes, self.dim)
+        #(L,N,T,C)
+        if tape_in is None:
+            tape = torch.zeros([tapelen, batchsize, self.n_tapes,self.dim],
+                            dtype=inputs.dtype, device=inputs.device)
+        else:
+            tape = tape_in
+        #(L,N,T)
+        if pos_in is None:
+            rpos = torch.zeros([tapelen, batchsize, self.n_tapes],
+                dtype=inputs.dtype, device=inputs.device)
+            wpos = torch.zeros([tapelen, batchsize, self.n_tapes],
+                dtype=inputs.dtype, device=inputs.device)
+            rpos[0,:,:] = 1.0
+            wpos[0,:,:] = 1.0
+        else:
+            rpos,wpos = pos_in
+       
+        #(S,N,C) -> (S,N,nh,8)
+        actions = self.actionlayer(inputs)[0].reshape(seqlen,batchsize,self.n_tapes,8)
+
+        directions_r = F.softmax(actions[:,:,:,:3], dim=-1)
+        directions_w = F.softmax(actions[:,:,:,3:6], dim=-1)
+        #(S,N,nh,2)
+        rwprobs = torch.sigmoid(actions[:,:,:,6:])
+        read_outs = []
+        for i in range(seqlen):
+            rw = rwprobs[i]
+            read_dir=directions_r[i]
+            write_dir=directions_w[i]
+            oldval = torch.einsum('lntc,lnt->ntc',tape, wpos)
+            newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]-oldval)
+            tape = tape + newmem*rw[None,:,:,1:2]
+            next_w = torch.roll(rpos, 1, dims=0)
+            prev_w = torch.roll(rpos, -1, dims=0)
+            wpos = prev_w*write_dir[None,:,:,0] + \
+                      wpos*write_dir[None,:,:,1] + next_w*write_dir[None,:,:,2]
+            read_out = torch.einsum('lntc,lnt->ntc',tape,rpos*rw[None,:,:,0])
+            #read_outs.append(read_out + (1-rw)[None,:,:,:1]*values[i])
+            read_outs.append(read_out)
+            next_r = torch.roll(rpos, 1, dims=0)
+            prev_r = torch.roll(rpos, -1, dims=0)
+            rpos = prev_r*read_dir[None,:,:,0] + \
+                      rpos*read_dir[None,:,:,1] + next_r*read_dir[None,:,:,2]
+        outputs = torch.stack(read_outs).reshape(seqlen,batchsize,-1)
+        outputs = self.outlayer(outputs)
+        return outputs, tape, (rpos,wpos)
+
+class NAMTuringAE(nn.Module):
+    def __init__(self,d_model, vocab_size, n_tapes=2, default_tapelen=64):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.dim=d_model
+        self.n_tapes = n_tapes
+        self.controller =  nn.Sequential(
+            nn.Linear(d_model, d_model),
+            nn.ReLU(),
+            nn.LayerNorm(d_model))
+        self.norm1 = nn.LayerNorm(d_model)
+        self.tm=NAMTuring(d_model,d_model,n_tapes)
+        self.d_tapelen=default_tapelen
+        self.fc = nn.Sequential(nn.LayerNorm(d_model), 
+            nn.ReLU(),
+            nn.Linear(d_model, vocab_size))
+
+        
+    #Seq-first in (S,N), seq-first out (S,N,C)
+    #Stack: initial stack state (zeros or null embeddings)
+    def forward(self, inputs, tapelen=-1):
+        if tapelen <= 0:
+            tapelen = self.d_tapelen
+        embedded = self.embedding(inputs.permute(1,0))
+        hidden = self.controller(embedded)
+        hidden =  self.norm1(hidden)
+        output, _, _= self.tm(hidden, tapelen)
+        output = output+hidden
+        
+        return self.fc(output).permute(1,2,0)

@@ -248,6 +248,9 @@ if __name__ == '__main__':
     elif args.net == 'lsam':
         print('Executing LSAM model')
         model = AM.LSAMAE(dmodel, nhead, vocab_size=vocab_size).cuda()
+    elif args.net == 'namtm':
+        print('Executing NAM TM model')
+        model = AM.NAMTuringAE(dmodel, vocab_size).cuda()
     else :
         print('Network {} not supported'.format(args.net))
         exit()
