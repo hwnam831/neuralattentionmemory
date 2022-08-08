@@ -1,6 +1,4 @@
-from http.client import responses
-from ssl import RAND_pseudo_bytes
-from unicodedata import bidirectional
+
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -60,7 +58,7 @@ class AttentionalMemory(nn.Module):
         q = self.sigma(q)
         out = torch.einsum('sbnq,bnvq->sbnv',q,A).reshape(S,B,-1)
         out = self.Wo(out)
-        return out, (k,q)
+        return out, A
 
 class GatedAM(nn.Module):
     def __init__(self, d_model, nhead, sigma=unitnorm):
@@ -93,7 +91,7 @@ class GatedAM(nn.Module):
         out = torch.einsum('sbnq,bnvq->sbnv',q,A)*r[:,:,:,None]
         out = out.reshape(S,B,-1)
         out = self.Wo(out)
-        return out, (k,q)
+        return out, A
 
 class LinearAttention(nn.Module):
     def __init__(self, d_model, nhead):
@@ -118,7 +116,7 @@ class LinearAttention(nn.Module):
         Z = 1/torch.einsum('sbnq,bnq->sbn',q,ksum)
         out = torch.einsum('sbnq,bnvq,sbn->sbnv',q,A,Z).reshape(S,B,-1)
         out = self.Wo(out)
-        return out, (k,q)
+        return out, A
 
 class AMEncoderLayer(nn.Module):
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1, attn=AttentionalMemory):
@@ -133,12 +131,12 @@ class AMEncoderLayer(nn.Module):
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
     def forward(self, src):
-        src2, kq = self.attn(src)
+        src2, A = self.attn(src)
         src = src + self.dropout1(src2)
         src2 = self.linear2(self.dropout(F.relu(self.linear1(src))))
         src = src + self.dropout2(src2)
         src = self.norm2(src)
-        return src, kq
+        return src, A
 
 class AMEncoder(nn.Module):
     def __init__(self, d_model=512, nhead=4, num_layers=6, maxlen=512, vocab_size=16, attn=AttentionalMemory):
@@ -325,10 +323,10 @@ class LSAMDecoder(nn.Module):
                                 nn.Dropout(drop), activation)
         self.norm = nn.LayerNorm(d_model)
 
-    def forward(self, x, hA):
+    def forward(self, x, AM):
         #assuming (S,B,C) layout
         B = x.size(1)
-        h,AM = hA
+        h = torch.zeros(B, self.d_model, dtype=x.dtype, device=x.device)
         out = []
         for x_i in x:
             h, AM = self.encoder(x_i, h, AM)
@@ -336,6 +334,38 @@ class LSAMDecoder(nn.Module):
         out = torch.stack(out)
         out = self.Wo(out)
         return self.norm(out), (h,AM)
+
+class LSAMDecoder2(nn.Module):
+    def __init__(self, input_dim, d_model, nhead, sigma=unitnorm, activation = nn.ReLU(), drop=0.1):
+        super().__init__()
+        assert d_model % nhead == 0
+        self.nhead = nhead
+        self.encoder = LSAMCell(input_dim=input_dim, d_model=d_model, nhead=nhead)
+        self.encoder2 = LSAMCell(input_dim=input_dim, d_model=d_model, nhead=nhead)
+        self.sigma = sigma
+        self.d_head = d_model//nhead
+        self.d_model = d_model
+        self.Wo = nn.Sequential(nn.Linear(d_model, d_model),
+                                nn.Dropout(drop), activation)
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, tgt, AM_e):
+        #assuming (S,B,C) layout
+        B = tgt.size(1)
+        h = torch.zeros(B, self.d_model, dtype=tgt.dtype, device=tgt.device)
+        h2 = torch.zeros(B, self.d_model, dtype=tgt.dtype, device=tgt.device)
+        AM_d = torch.zeros([B, self.nhead, self.d_head, self.d_head],
+            dtype=tgt.dtype, device=tgt.device)
+        hiddens = []
+        for t in tgt:
+            h, AM_d = self.encoder(t, h, AM_d)
+            h2, AM_e = self.encoder2(h, h2, AM_e)
+            hiddens.append(h2)
+        out = torch.stack(hiddens)
+        #queries = self.sigma(out.reshape(len(hiddens),B,self.nhead,self.d_head))
+        #out = torch.einsum('bnvk,sbnk->sbnv',AM_e,queries).reshape([len(hiddens),B,-1])
+        out = self.Wo(self.norm(out))
+        return out, (h2,AM_e)
 
 class BLSAM(nn.Module):
     def __init__(self, input_dim, d_model, nhead, sigma=unitnorm, activation = nn.ReLU(), drop=0.1):
@@ -346,8 +376,10 @@ class BLSAM(nn.Module):
         self.nhead = nhead
         fw_module = LSAMCell(input_dim=input_dim, d_model=d_model//2, nhead=nhead//2)
         bw_module = LSAMCell(input_dim=input_dim, d_model=d_model//2, nhead=nhead//2)
-        self.enc_fw = torch.jit.script(fw_module)
-        self.enc_bw = torch.jit.script(bw_module)
+        #self.enc_fw = torch.jit.script(fw_module)
+        #self.enc_bw = torch.jit.script(bw_module)
+        self.enc_fw = fw_module
+        self.enc_bw = bw_module
         self.input_dim = input_dim
         self.sigma = sigma
         self.d_head = d_model//nhead
@@ -439,7 +471,7 @@ class LSAMAE(nn.Module):
         src = self.embedding(input2)
 
         out, hA = self.encoder(src)
-        out, hA = self.decoder(out, hA)
+        out, hA = self.decoder(out, hA[1])
         #out, hA = self.encoder2(out)
         #out, hA = self.encoder3(out)
         out = self.fc(out).permute(1,2,0)
@@ -457,24 +489,25 @@ class LSAMS2S(nn.Module):
         self.embedding = nn.Embedding(vocab_size, d_model)
         self.tgt_embedding = nn.Embedding(vocab_size, d_model)
         self.encoder = LSAMEncoderLayer(d_model=d_model, nhead=nhead)
-        self.decoder = LSAMDecoder(input_dim=d_model, d_model=d_model, nhead=nhead)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.encoder2 = AttentionalMemory(d_model=d_model, nhead=nhead)
+
+        self.decoder = LSAMDecoder2(input_dim=d_model, d_model=d_model, nhead=nhead)
         self.fc = nn.Linear(d_model, vocab_size)
 
     #Batch-first in (N,S), batch-first out (N,C,S)
-    def forward(self, input, tgt, encoder_mode=False):
+    def forward(self, input, tgt):
         input2 = input.permute(1,0)
 
         src = self.embedding(input2)
         tsrc = self.tgt_embedding(tgt.permute(1,0))
         out, hA = self.encoder(src)
-        out, hA = self.decoder(tsrc, hA)
-        #out, hA = self.encoder2(out)
+        out, AM = self.encoder2(self.norm1(out))
+        out, hA = self.decoder(tsrc, AM)
+        
         #out, hA = self.encoder3(out)
         out = self.fc(out).permute(1,2,0)
-        if encoder_mode:
-            return out, hA[1]
-        else:
-            return out
+        return out
 
 
 class NAMTuring(nn.Module):
@@ -487,7 +520,8 @@ class NAMTuring(nn.Module):
         # (prev, next, no-op)
         #direction layers for read/write heads
         #action: (read_direction(3), write_direction(3), rwprob(2))
-        self.actionlayer = nn.LSTM(self.in_dim, 8*self.n_tapes, 1, bidirectional=False)
+        self.controller = nn.LSTM(self.in_dim, hidden_dim//2, 1, bidirectional=True)
+        self.actionlayer = nn.Linear(hidden_dim, 8*self.n_tapes)
         self.valuelayer = nn.Linear(self.in_dim, self.dim*self.n_tapes)
         self.outlayer = nn.Linear(hidden_dim,hidden_dim)
         
@@ -516,7 +550,8 @@ class NAMTuring(nn.Module):
             rpos,wpos = pos_in
        
         #(S,N,C) -> (S,N,nh,8)
-        actions = self.actionlayer(inputs)[0].reshape(seqlen,batchsize,self.n_tapes,8)
+        hidden_control, _ = self.controller(inputs)
+        actions = self.actionlayer(hidden_control).reshape(seqlen,batchsize,self.n_tapes,8)
 
         directions_r = F.softmax(actions[:,:,:,:3], dim=-1)
         directions_w = F.softmax(actions[:,:,:,3:6], dim=-1)
@@ -545,16 +580,99 @@ class NAMTuring(nn.Module):
         outputs = self.outlayer(outputs)
         return outputs, tape, (rpos,wpos)
 
+class NAMTM(nn.Module):
+    def __init__(self, model_size, vocab_size=10, default_tsize=32):
+        super().__init__()
+        self.default_tsize = default_tsize
+        self.model_size=model_size
+        # (push, no-op)
+        self.directionlayer = nn.Linear(self.model_size, 3)
+        self.rwlayer = nn.Sequential(nn.Linear(self.model_size, 2),
+                                    nn.Sigmoid())
+        self.decoder = nn.Sequential(nn.LayerNorm(self.model_size),
+                                     nn.Dropout(0.1),
+                                    nn.Linear(self.model_size, vocab_size))
+    #Seq-first in (S,N,C), seq-first out (S,N,C)
+    #Stack: initial stack state (zeros or null embeddings)
+    def forward(self, values, tape=None, tsize=-1):
+        #(L,N,C)
+        
+        if tape is None:
+            tsize = self.default_tsize if tsize <= 0 else tsize
+            tape = torch.zeros([tsize, values.shape[1], values.shape[-1]],
+                            dtype=values.dtype, device=values.device)
+        else:
+            tsize = tape.size(0)
+        #(L,N)
+        posvec = torch.zeros([tsize, values.shape[1]],
+                            dtype=values.dtype, device=values.device)
+        posvec[0,:] = 1.0
+        #(S,N,3) -> (L,N,R)
+        directions = self.directionlayer(values)
+        if self.training :
+            directions = F.softmax(directions, dim=-1)
+        else:
+            directions = F.gumbel_softmax(directions, hard=True, dim=-1)
+        #(S,N,2)
+        rwprobs = self.rwlayer(values)
+        reads = []
+        for i,direction in enumerate(directions):
+            rw = rwprobs[i]
+            oldval = torch.einsum('lnc,ln->nc',tape, posvec)
+            reads.append(oldval*rw[:,0:1])
+            newmem = torch.einsum('ln,nc->lnc',posvec,values[i]-oldval)
+            tape = tape + newmem*rw[None,:,1:2]
+            nextpos = torch.roll(posvec, 1, dims=0)
+            prevpos = torch.roll(posvec, -1, dims=0)
+            posvec = prevpos*direction[None,:,0] + \
+                      posvec*direction[None,:,1] + nextpos*direction[None,:,2]
+        
+        return torch.stack(reads), tape
+
+class NAMTMAE(nn.Module):
+    def __init__(self,d_model, vocab_size, n_tapes=2, default_tapelen=64):
+        super().__init__()
+        self.embedding = nn.Sequential(nn.Embedding(vocab_size, d_model),
+            nn.Linear(d_model, d_model),
+            nn.ReLU())
+        self.dim=d_model
+        self.n_tapes = n_tapes
+        self.controller =  nn.LSTM(self.dim, self.dim//2, num_layers=1, bidirectional=True)
+        
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.tm1=NAMTM(d_model,vocab_size, default_tapelen)
+        self.tm2=NAMTM(d_model,vocab_size, default_tapelen)
+        self.d_tapelen=default_tapelen
+        self.fc = nn.Sequential(nn.LayerNorm(d_model), 
+            nn.ReLU(),
+            nn.Linear(d_model, vocab_size))
+
+    #Seq-first in (S,N), seq-first out (S,N,C)
+    #Stack: initial stack state (zeros or null embeddings)
+    def forward(self, inputs, tapelen=-1):
+        if tapelen <= 0:
+            tapelen = self.d_tapelen
+        embedded = self.embedding(inputs.permute(1,0))
+        hidden, _ = self.controller(embedded)
+        hidden =  self.norm1(hidden)
+        output, tape= self.tm1(hidden)
+        res = self.norm2(output+hidden)
+        output, tape = self.tm2(res, tape)
+        output = output+res
+        
+        return self.fc(output).permute(1,2,0)
+
 class NAMTuringAE(nn.Module):
     def __init__(self,d_model, vocab_size, n_tapes=2, default_tapelen=64):
         super().__init__()
-        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.embedding = nn.Sequential(nn.Embedding(vocab_size, d_model),
+            nn.Linear(d_model, d_model),
+            nn.ReLU())
         self.dim=d_model
         self.n_tapes = n_tapes
-        self.controller =  nn.Sequential(
-            nn.Linear(d_model, d_model),
-            nn.ReLU(),
-            nn.LayerNorm(d_model))
+        #self.controller =  nn.LSTM(self.dim, self.dim//2, num_layers=1, bidirectional=True)
+        #self.controller = nn.Linear(self.dim, self.dim)
         self.norm1 = nn.LayerNorm(d_model)
         self.tm=NAMTuring(d_model,d_model,n_tapes)
         self.d_tapelen=default_tapelen
@@ -568,10 +686,10 @@ class NAMTuringAE(nn.Module):
     def forward(self, inputs, tapelen=-1):
         if tapelen <= 0:
             tapelen = self.d_tapelen
-        embedded = self.embedding(inputs.permute(1,0))
-        hidden = self.controller(embedded)
+        hidden = self.embedding(inputs.permute(1,0))
+        #hidden, _ = self.controller(hidden)
         hidden =  self.norm1(hidden)
         output, _, _= self.tm(hidden, tapelen)
-        output = output+hidden
+        #output = output+hidden
         
         return self.fc(output).permute(1,2,0)

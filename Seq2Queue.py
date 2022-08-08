@@ -8,6 +8,8 @@ from Models import LSTMS2S, DNCS2S
 import argparse
 import Options
 import AM
+import NAM
+from NSPDataset import NSPDatasetS2S, fib
 
 VOCAB_SIZE=10
 
@@ -207,7 +209,7 @@ if __name__ == '__main__':
     parser.add_argument(
             "--lr",
             type=float,
-            default='5e-5')
+            default='1e-4')
     parser.add_argument(
             "--epochs",
             type=int,
@@ -219,32 +221,48 @@ if __name__ == '__main__':
     parser.add_argument(
             "--net",
             type=str,
-            choices=['tf', 'lstm', 'nam', 'turing', 'dnc', 'lsam'],
+            choices=['tf', 'lstm', 'nam', 'turing', 'dnc', 'lsam', 'test'],
             default='turing',
             help='network choices')
+    parser.add_argument(
+            "--task",
+            type=str,
+            choices=['fib','reduce'],
+            default='reduce',
+            help='task choices')
     args = parser.parse_args()
-    trainset = BinaryReductionDataset(12,2, size=25600)
-    valset = BinaryReductionDataset(12,8, size=2048)
-    testset = BinaryReductionDataset(20,12, size=2048)
+    if args.task == 'reduce':
+        trainset = BinaryReductionDataset(12,2, size=25600)
+        valset = BinaryReductionDataset(12,8, size=2048)
+        testset = BinaryReductionDataset(20,12, size=2048)
+        vocab_size = 11
+    elif args.task == 'fib':
+        trainset = NSPDatasetS2S(fib, 12,2, size=25600)
+        valset = NSPDatasetS2S(fib, 12,8, size=2048)
+        testset = NSPDatasetS2S(fib, 16,13, size=2048)
+        vocab_size=16
 
     trainloader = DataLoader(trainset, batch_size=args.batch_size, num_workers=4, shuffle=True)
     valloader = DataLoader(valset, batch_size=args.batch_size, num_workers=4)
     testloader = DataLoader(testset, batch_size=args.batch_size, num_workers=4)
     if args.net == 'tf':
-        model       = TfS2S(512, nhead=8, num_layers=2, tgt_vocab_size=11).cuda()
+        model       = TfS2S(512, nhead=8, num_layers=2, tgt_vocab_size=vocab_size).cuda()
     elif args.net == 'lstm':
-        model       = LSTMS2S(768, num_layers=2, vocab_size=256, tgt_vocab_size=11).cuda()
+        model       = LSTMS2S(768, num_layers=2, vocab_size=256, tgt_vocab_size=vocab_size).cuda()
     elif args.net == 'turing':
-        model       = QueueReducer(512, maxlen=64, max_tokens=64, tgt_vocab_size=11, queue=NAMTuring).cuda()
+        #model       = QueueReducer(512, maxlen=64, max_tokens=64, tgt_vocab_size=vocab_size, queue=NAMTuring).cuda()
+        model = NAM.NAMTMS2Q(512, vocab_size).cuda()
     elif args.net == 'dnc':
-        model       = DNCS2S(512, nr_cells = 32, vocab_size=11).cuda()
+        model       = DNCS2S(512, nr_cells = 32, vocab_size=vocab_size).cuda()
     elif args.net == 'lsam':
-        model       = AM.LSAMS2S(512, nhead = 4, vocab_size=11).cuda()
+        model       = AM.LSAMS2S(512, nhead = 4, vocab_size=vocab_size).cuda()
+    elif args.net == 'nam':
+        model       = AM.LSAMAE(512, nhead = 4, vocab_size=vocab_size).cuda()
     else:
-        model       = QueueReducer(256, maxlen=64, max_tokens=64, tgt_vocab_size=11).cuda()
+        model       = AM.LSAMS2S(512, nhead = 4, vocab_size=vocab_size).cuda()
     print(model)
     print("Parameter count: {}".format(Options.count_params(model)))
-    optimizer   = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-3)
+    optimizer   = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.lr/2)
     criterion   = nn.CrossEntropyLoss()
     model.train(mode=True)
     
@@ -256,7 +274,7 @@ if __name__ == '__main__':
             xdata       = x.cuda()
             ydata       = y.cuda()
             optimizer.zero_grad()
-            tgt         = torch.ones_like(ydata)*VOCAB_SIZE
+            tgt         = torch.ones_like(ydata)*(vocab_size-1)
             tgt[:,1:]   = ydata[:,:-1]
             if args.net in ['nam','turing']:
                 output      = model(xdata)[:,:,:ydata.shape[1]]
@@ -282,7 +300,7 @@ if __name__ == '__main__':
             xdata       = x.cuda()
             ydata       = y.cuda()
             with torch.no_grad():
-                tgt         = torch.ones_like(ydata)*VOCAB_SIZE
+                tgt         = torch.ones_like(ydata)*(vocab_size-1)
                 tgt[:,1:]   = ydata[:,:-1]
                 if args.net in ['nam','turing']:
                     output      = model(xdata)[:,:,:ydata.shape[1]]
@@ -305,7 +323,7 @@ if __name__ == '__main__':
             xdata       = x.cuda()
             ydata       = y.cuda()
             with torch.no_grad():
-                tgt         = torch.ones_like(ydata)*VOCAB_SIZE
+                tgt         = torch.ones_like(ydata)*(vocab_size-1)
                 tgt[:,1:]   = ydata[:,:-1]
                 if args.net in ['nam','turing']:
                     output      = model(xdata)[:,:,:ydata.shape[1]]

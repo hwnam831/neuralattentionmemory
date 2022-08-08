@@ -188,17 +188,16 @@ class NSPDatasetAE2(Dataset):
 
 #Seq2Seq version + no one-hot encoding
 class NSPDatasetS2S(Dataset):
-    def __init__(self, rule, maxdigits, mindigits=1, numbers=2, size=25600, lendian=False):
+    def __init__(self, rule, maxdigits, mindigits=1, size=25600, lendian=True):
         self.rule = rule
         assert maxdigits > mindigits
         self.maxdigits = maxdigits
         self.mindigits = mindigits
         self.size = size
         self.lendian = lendian
-        self.numbers = numbers
-        self.maxlen = (maxdigits+1)*numbers + 1
+        self.maxlen = (maxdigits+1)*2 + 1
         self.inputs = np.ones([size, self.maxlen], dtype=np.int64)*Token.pad
-        self.targets = np.ones([size, self.maxdigits], dtype=np.int64)*Token.pad
+        self.targets = np.ones([size, self.maxdigits+1], dtype=np.int64)*Token.pad
         self.iscreated = [False for i in range(size)]
 
     def __len__(self):
@@ -207,18 +206,26 @@ class NSPDatasetS2S(Dataset):
     def __getitem__(self, idx):
         if not self.iscreated[idx]:
             ndigits = ((self.maxdigits-self.mindigits+1)*idx)//self.size + self.mindigits
+            ndigits2 = np.random.randint(1,ndigits+1)
             seed1 = np.random.randint(10**(ndigits-1), 10**ndigits, dtype=np.int64)
-            seed2 = np.random.randint(10**(ndigits-1), 10**ndigits, dtype=np.int64)
-            seq, target = self.rule(seed1, seed2, self.numbers)
+            seed2 = np.random.randint(10**(ndigits2-1), 10**ndigits2, dtype=np.int64)
+            seq, target = self.rule(seed1, seed2, 2)
             pos = 1
             self.inputs[idx][0] = Token.delim
-            for i in range(self.numbers):
-                vec = num2vec(seq[i], ndigits, self.lendian)
-                self.inputs[idx][pos:pos+ndigits] = vec
-                self.inputs[idx][pos+ndigits] = Token.delim
-                pos = pos + ndigits + 1
 
-            self.targets[idx][:ndigits] = num2vec(target, ndigits, self.lendian)            
+            vec = num2vec(seq[0], ndigits, self.lendian)
+            self.inputs[idx][pos:pos+ndigits] = vec
+            self.inputs[idx][pos+ndigits] = Token.delim
+            pos = pos + ndigits + 1
+
+            vec = num2vec(seq[1], ndigits2, self.lendian)
+            self.inputs[idx][pos:pos+ndigits2] = vec
+            self.inputs[idx][pos+ndigits2] = Token.delim
+            pos = pos + ndigits2 + 1
+            if target < 10**ndigits:
+                self.targets[idx][:ndigits] = num2vec(target, ndigits, self.lendian)
+            else:
+                self.targets[idx][:ndigits+1] = num2vec(target, ndigits+1, self.lendian)            
             self.iscreated[idx] = True
         return self.inputs[idx], self.targets[idx]
 
@@ -305,6 +312,39 @@ class ReductionDatasetAE(Dataset):
     def __getitem__(self, idx):
         return self.inputs[idx], self.targets[idx]
 
+#100100011 -> 1111
+class ReductionDatasetAE2(Dataset):
+    def __init__(self, maxdigits, mindigits=1, size=6400):
+        assert maxdigits > mindigits
+        self.maxdigits = maxdigits
+        self.mindigits = mindigits
+        self.size = size
+        #vocab: [0-9],<DELIM>, <Pad>
+        self.vocab_size = 12
+        self.inputs = np.ones([size, self.maxdigits*2+1], dtype=np.int64)*(self.vocab_size-1)
+        self.targets = np.ones([size, self.maxdigits*2+1], dtype=np.int64)*(self.vocab_size-1)
+        self.iscreated = [False for i in range(size)]
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        if not self.iscreated[idx]:
+            ndigits = ((self.maxdigits-self.mindigits+1)*idx)//self.size + self.mindigits
+            seq = [np.random.randint(2)*np.random.randint(1,10) for _ in range(ndigits)]
+            
+            pos = np.random.randint(self.maxdigits-ndigits+1)
+            for i in range(pos, pos+ndigits):
+                self.inputs[idx][i] = seq[i-pos]
+            self.inputs[idx][pos+ndigits] = 10 #delim
+            tidx = pos+ndigits+1
+            for s in seq:
+                if s > 0:
+                    self.targets[idx][tidx] = s
+                    tidx = tidx+1         
+            self.iscreated[idx] = True
+        return self.inputs[idx], self.targets[idx]
+
 def printseq(x,y):
     tokenmap = ['0','1','2','3','4','5','6','7','8','9','_',' ','S','E','M','C']
     print("input:")
@@ -323,9 +363,9 @@ def printseq2(x,y):
 if __name__ == '__main__':
     
     #dataset = NSPDatasetAE2(copy,5,1, numbers=2)
-    # dataset = NSPDatasetS2S(fib,2,1, numbers=1)
+    #dataset = NSPDatasetS2S(fib,12,2)
     #dataset = StringDataset('copy', 5, 1, size=256)
-    dataset = ReductionDatasetAE(12,8,size=512)
+    dataset = ReductionDatasetAE2(12,8,size=512)
     loader = DataLoader(dataset, batch_size=4)
     for i in range(10):
         idx = np.random.randint(0,len(dataset))

@@ -45,10 +45,6 @@ python3 AutoEncode.py --net ibert --seq_type ptbw --epochs 100
 - Add model save/load
 
 ### AE tasks - LSAM?
-- SCAN length
+- ID val / OOD easy val
 - NSP
 
-## S2S tasks
-- SCAN S2S
-- NSP S2S
-- Multiply?
