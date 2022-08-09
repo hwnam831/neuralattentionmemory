@@ -33,17 +33,17 @@ def get_args():
     parser.add_argument(
             "--validation_size",
             type=int,
-            default='2048',
+            default='1024',
             help='number of validation examples')
     parser.add_argument(
             "--batch_size",
             type=int,
-            default='64',
+            default='128',
             help='batch size')
     parser.add_argument(
             "--model_size",
             type=str,
-            default='custom',
+            default='medium',
             choices=['tiny','mini','small','medium','base','custom'],
             help='Size of the model based on Google\'s bert configurations')
     parser.add_argument(
@@ -60,7 +60,7 @@ def get_args():
     parser.add_argument(
             "--lr",
             type=float,
-            default=5e-5,
+            default=1e-4,
             help='Default learning rate')
     parser.add_argument(
             "--log",

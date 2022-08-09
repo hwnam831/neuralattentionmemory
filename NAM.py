@@ -47,7 +47,7 @@ class NAMAttention(nn.Module):
         return out, A
 
 #Multi-head NAM Turing tape
-class NAMTuring(nn.Module):
+class NAMTuringNoJump(nn.Module):
     def __init__(self,dim, n_tapes=4, default_tapelen=32):
         super().__init__()
         assert dim%n_tapes == 0
@@ -116,8 +116,7 @@ class NAMTuring(nn.Module):
         outputs = self.outlayer(outputs)
         return outputs, tape.reshape(tapelen, batchsize, self.dim)
 
-#TODO: attn-like jump?
-class NAMTuringJump(nn.Module):
+class NAMTuring(nn.Module):
     def __init__(self,dim, n_tapes=4, default_tapelen=32):
         super().__init__()
         assert dim%n_tapes == 0
@@ -131,6 +130,7 @@ class NAMTuringJump(nn.Module):
         self.controller = nn.GRU(self.dim, self.dim//2,bidirectional=True)
         self.actionlayer = nn.Linear(self.dim, 10*self.n_tapes)
         self.valuelayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
+        self.keylayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
         self.outlayer = nn.Linear(dim,dim)
         self.Wk = nn.Linear(self.head_dim, self.head_dim)
         self.Wq = nn.Linear(self.dim, self.dim)
@@ -142,6 +142,8 @@ class NAMTuringJump(nn.Module):
         batchsize = inputs.shape[1]
 
         values = self.valuelayer(inputs).reshape(seqlen, batchsize, self.n_tapes, self.head_dim)
+        keys = self.keylayer(inputs).reshape(seqlen, batchsize, self.n_tapes, self.head_dim)
+        keys = unitnorm(keys)
         #(L,N,T,C)
         if tape_in is None:
             tapelen = tapelen if tapelen > 0 else self.default_tapelen
@@ -150,7 +152,7 @@ class NAMTuringJump(nn.Module):
         else:
             tapelen = tape_in.size(0)
             tape = tape_in.reshape(tapelen, batchsize, self.n_tapes, self.head_dim)
-
+        tape_key = torch.zeros_like(tape)
         rpos = torch.zeros([tapelen, batchsize, self.n_tapes],
             dtype=inputs.dtype, device=inputs.device)
         wpos = torch.zeros([tapelen, batchsize, self.n_tapes],
@@ -166,6 +168,7 @@ class NAMTuringJump(nn.Module):
         #(S,N,nh,2)
         rwprobs = torch.sigmoid(actions[:,:,:,8:])
         queries = self.Wq(hidden).reshape(seqlen,batchsize,self.n_tapes,self.head_dim)
+        queries = unitnorm(queries)
         read_outs = []
         for i in range(seqlen):
             rw = rwprobs[i]
@@ -176,8 +179,12 @@ class NAMTuringJump(nn.Module):
             tape = tape + newmem*rw[None,:,:,1:2]
             read_out = torch.einsum('lntc,lnt->ntc',tape,rpos)
             
-            keys = self.Wk(tape)
-            jpos = torch.softmax(torch.einsum('lntc,ntc->lnt',keys,queries[i]),dim=0)
+            oldkey = torch.einsum('lntc,lnt->ntc',tape_key, wpos)
+            newkey = torch.einsum('lnt,ntc->lntc',wpos,keys[i]-oldkey)
+            tape_key = tape_key + newkey*rw[None,:,:,1:2]
+            
+            jpos = torch.einsum('lntc,ntc->lnt',tape_key,queries[i])
+            
             next_w = torch.roll(rpos, 1, dims=0)
             prev_w = torch.roll(rpos, -1, dims=0)
             wpos = prev_w*write_dir[None,:,:,0] + wpos*write_dir[None,:,:,1] +\
@@ -188,6 +195,7 @@ class NAMTuringJump(nn.Module):
             prev_r = torch.roll(rpos, -1, dims=0)
             rpos = prev_r*read_dir[None,:,:,0] + rpos*read_dir[None,:,:,1] +\
                     next_r*read_dir[None,:,:,2] + jpos*read_dir[None,:,:,3]
+            
         outputs = torch.stack(read_outs).reshape(seqlen,batchsize,-1)
         outputs = self.outlayer(outputs)
         return outputs, tape.reshape(tapelen, batchsize, self.dim)
@@ -227,8 +235,8 @@ class NAMTMAE(nn.Module):
         #self.rnnlayer = AM.BLSAM(self.dim, self.dim, nhead=nhead)
         self.encnorm = nn.LayerNorm(self.dim)
 
-        self.tm = NAMTuringJump(dim, n_tapes=nhead, default_tapelen=defalt_tapelen)
-        self.tm2 = NAMTuringJump(dim, n_tapes=nhead, default_tapelen=defalt_tapelen)
+        self.tm = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen)
+        self.tm2 = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen)
         self.attn = NAMAttention(dim, nhead=nhead)
         self.fc = nn.Sequential(nn.LayerNorm(dim),
             nn.Dropout(0.1), nn.ReLU(),

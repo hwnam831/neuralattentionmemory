@@ -64,20 +64,24 @@ def train(model, trainloader, criterion, optimizer, scheduler):
         return model, trainingResult
 
 
-def validate(model, valloader, testloader, args):
-        vcorrects   = [0 for i in range(args.digits+1, args.digits+3)]
-        vlens       = [0 for i in range(args.digits+1, args.digits+3)]
+def validate(model, valloader, valloader2, testloader, args):
+        vcorrect = 0
+        vlen = 0
         vloss = 0
+        vcorrect2 = 0
+        vlen2 = 0
+        vloss2 = 0
         model.train(mode=False)
         bits = 0.0
         maskcount = 0
+        bits2 = 0.0
+        maskcount2 = 0
         tcorrect = 0
         tlen = 0
         with torch.no_grad():
             for i,(x,y) in enumerate(valloader):
                 xdata       = x.cuda()
                 ydata2      = y.cuda()
-                shard       = (2*i)//len(valloader)
                 output      = model(xdata)
                 # xdata <- masked index
                 # ydata2 <- answer 
@@ -89,8 +93,24 @@ def validate(model, valloader, testloader, args):
                 maskcount += mcnt
                 pred2       = output.argmax(axis=1)
                 seqcorrect  = (pred2==ydata2).prod(-1)
-                vcorrects[shard] = vcorrects[shard] + seqcorrect.sum().item()
-                vlens[shard]     = vlens[shard] + seqcorrect.nelement()
+                vcorrect = vcorrect + seqcorrect.sum().item()
+                vlen     = vlen + seqcorrect.nelement()
+            for i,(x,y) in enumerate(valloader2):
+                xdata       = x.cuda()
+                ydata2      = y.cuda()
+                output      = model(xdata)
+                # xdata <- masked index
+                # ydata2 <- answer 
+                ismask = xdata != ydata2
+                mcnt = ismask.sum().item()
+                loss        = F.cross_entropy(output, ydata2, reduction='none')
+                vloss2       = vloss2 + loss.mean().item()
+                bits2 += (loss*ismask).sum().item()
+                maskcount2 += mcnt
+                pred2       = output.argmax(axis=1)
+                seqcorrect  = (pred2==ydata2).prod(-1)
+                vcorrect2 = vcorrect2 + seqcorrect.sum().item()
+                vlen2     = vlen2 + seqcorrect.nelement()
             for i,(x,y) in enumerate(testloader):
                 xdata       = x.cuda()
                 ydata2      = y.cuda()
@@ -99,22 +119,30 @@ def validate(model, valloader, testloader, args):
                 seqcorrect  = (pred2==ydata2).prod(-1)
                 tcorrect = tcorrect + seqcorrect.sum().item()
                 tlen     = tlen + seqcorrect.nelement()
-        curshard = args.digits+1
+
             
         accuracyResult = list()
-        for vc,vl in zip(vcorrects, vlens):
-            print("val accuracy at {} digits = {}".format(curshard,vc/vl))
-            accuracyResult.append("val accuracy at {} digits = {}".format(curshard,vc/vl))
-            curshard = curshard + 1
-        print("Test accuracy = {}".format(tcorrect/tlen))
-        accuracyResult.append("Test accuracy = {}".format(tcorrect/tlen))
-        #Sequence accuracy
+
+        print("\nval accuracy at ID = {}".format(vcorrect/vlen))
+        accuracyResult.append("val accuracy at ID = {}".format(vcorrect/vlen))
         print('validation loss:\t{}'.format(vloss/len(valloader)))
         accuracyResult.append('validation loss:\t{}'.format(vloss/len(valloader)))
-        
         #Perplexity  = 2^bit
         print('Perplexity :\t{}'.format(math.exp((bits/maskcount) * math.log(2)))) 
         accuracyResult.append('Perplexity :\t{}'.format(math.exp((bits/maskcount) * math.log(2))))
+
+        print("\nval accuracy at OOD = {}".format(vcorrect2/vlen2))
+        accuracyResult.append("val accuracy at OOD = {}".format(vcorrect2/vlen2))
+        print('validation loss:\t{}'.format(vloss2/len(valloader2)))
+        accuracyResult.append('validation loss:\t{}'.format(vloss2/len(valloader2)))
+        #Perplexity  = 2^bit
+        print('Perplexity :\t{}'.format(math.exp((bits2/maskcount2) * math.log(2)))) 
+        accuracyResult.append('Perplexity :\t{}'.format(math.exp((bits2/maskcount2) * math.log(2))))
+
+        print("\nTest accuracy = {}".format(tcorrect/tlen))
+        accuracyResult.append("Test accuracy = {}".format(tcorrect/tlen))
+        #Sequence accuracy
+        
 
         return model, accuracyResult
 
@@ -142,31 +170,38 @@ if __name__ == '__main__':
 
     if args.seq_type == 'fib':
         dataset     = NSPDatasetAE2(fib, args.digits, size=args.train_size)
-        valset      = NSPDatasetAE2(fib, args.digits+2, args.digits-1, size=args.validation_size)
+        valset      = NSPDatasetAE2(fib, args.digits, args.digits//2, size=args.validation_size)
+        valset2      = NSPDatasetAE2(fib, args.digits+2, args.digits+1, size=args.validation_size)
         testset      = NSPDatasetAE2(fib, args.digits+4, args.digits+2, size=args.validation_size)
     elif args.seq_type == 'arith':
         dataset     = NSPDatasetAE2(arith, args.digits, size=args.train_size)
-        valset      = NSPDatasetAE2(arith, args.digits+2, args.digits-1, size=args.validation_size)
+        valset      = NSPDatasetAE2(arith, args.digits, args.digits//2, size=args.validation_size)
+        valset2      = NSPDatasetAE2(arith, args.digits+2, args.digits+1, size=args.validation_size)
         testset      = NSPDatasetAE2(arith, args.digits+4, args.digits+2, size=args.validation_size)
     elif args.seq_type == 'copy' or args.seq_type == 'palin':
         dataset     = StringDataset(args.seq_type, args.digits, size=args.train_size)
-        valset      = StringDataset(args.seq_type, args.digits+2, args.digits-1, size=args.validation_size)
+        valset      = StringDataset(args.seq_type, args.digits, args.digits//2, size=args.validation_size)
+        valset2      = StringDataset(args.seq_type, args.digits+2, args.digits+1, size=args.validation_size)
         testset      = StringDataset(args.seq_type, args.digits+4, args.digits+2, size=args.validation_size)
     elif args.seq_type == 'ptbc':
         dataset     = PTBCDataset('train', minSeq = 16, maxSeq = 512) 
-        valset      = PTBCDataset('valid', minSeq = 16, maxSeq = 512) 
+        valset      = PTBCDataset('valid', minSeq = 16, maxSeq = 512)
+        valset2      = PTBCDataset('valid', minSeq = 16, maxSeq = 512) 
         testset      = PTBCDataset('test', minSeq = 16, maxSeq = 512) 
     elif args.seq_type == 'ptbw':
         dataset     = PTBWDataset('train', minSeq = 2, maxSeq = 64) 
-        valset      = PTBWDataset('valid', minSeq = 2, maxSeq = 64) 
+        valset      = PTBWDataset('valid', minSeq = 2, maxSeq = 64)
+        valset2      = PTBWDataset('valid', minSeq = 2, maxSeq = 64) 
         testset      = PTBWDataset('test', minSeq = 2, maxSeq = 64) 
     elif args.seq_type == 'scan':
         dataset     = SCANDatasetAE('SCAN/length_split/tasks_train_length.txt') 
-        valset      = SCANDatasetAE('SCAN/simple_split/tasks_test_simple.txt') 
+        valset      = SCANDatasetAE('SCAN/simple_split/tasks_test_simple.txt')
+        valset2      = SCANDatasetAE('SCAN/length_split/tasks_test_length.txt') 
         testset      = SCANDatasetAE('SCAN/length_split/tasks_test_length.txt') 
     elif args.seq_type == 'reduce':
         dataset     = ReductionDatasetAE2(args.digits, size=args.train_size)
-        valset      = ReductionDatasetAE2(args.digits+2,args.digits-1, size=args.validation_size) 
+        valset      = ReductionDatasetAE2(args.digits,args.digits//2, size=args.validation_size)
+        valset2      = ReductionDatasetAE2(args.digits+2,args.digits+1, size=args.validation_size) 
         testset      = ReductionDatasetAE2(args.digits+4, args.digits+2, size=args.validation_size) 
 
 
@@ -236,13 +271,13 @@ if __name__ == '__main__':
         model = Models.GRUAE(dmodel, vocab_size = vocab_size).cuda()
     elif args.net == 'lstm':
         print('Executing Autoencoder model with LSTM including Attention')
-        model = IBERT.LSTMAE(dmodel+dmodel//2, vocab_size = vocab_size).cuda()
+        model = IBERT.LSTMAE(int(dmodel*math.sqrt(num_layers)), vocab_size = vocab_size).cuda()
     elif args.net == 'nam':
         print('Executing NAM Autoencoder model')
         model = AM.AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size).cuda()
     elif args.net == 'linear':
         print('Executing Linear Attention Autoencoder model')
-        model = AM.AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size, attn=LinearAttention).cuda()
+        model = AM.AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size, attn=AM.LinearAttention).cuda()
     elif args.net == 'dnc':
         print('Executing DNC model')
         model = Models.DNCAE(dmodel + dmodel//2, nhead, vocab_size=vocab_size).cuda()
@@ -251,7 +286,7 @@ if __name__ == '__main__':
         model = AM.LSAMAE(dmodel, nhead, vocab_size=vocab_size).cuda()
     elif args.net == 'namtm':
         print('Executing NAM TM model')
-        model = NAM.NAMTMAE(dmodel, vocab_size).cuda()
+        model = NAM.NAMTMAE(dmodel, vocab_size, nhead=nhead).cuda()
 
     else :
         print('Network {} not supported'.format(args.net))
@@ -261,6 +296,7 @@ if __name__ == '__main__':
     col_fn = SCANDatasetAE.collate_batch if args.seq_type == 'scan' else None
     trainloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, collate_fn=col_fn)
     valloader   = DataLoader(valset, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
+    valloader2   = DataLoader(valset2, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
     testloader   = DataLoader(testset, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
     optimizer   = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.lr/2)
     scheduler   = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.97)
@@ -281,7 +317,7 @@ if __name__ == '__main__':
         trainResult.append("Train sequences per second : " + str(nsamples/(time.time()-trainstart)))
 
         #validate the model
-        model, valResult = validate(model, valloader, testloader, args)
+        model, valResult = validate(model, valloader, valloader2, testloader, args)
         
         if args.log == 'true':
             #save into logfile
