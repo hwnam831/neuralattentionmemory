@@ -49,7 +49,7 @@ def get_args():
     parser.add_argument(
             "--digits",
             type=int,
-            default='8',
+            default='10',
             help='Max number of digits')
     parser.add_argument(
             "--seq_type",

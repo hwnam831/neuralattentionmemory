@@ -171,18 +171,18 @@ if __name__ == '__main__':
     if args.seq_type == 'fib':
         dataset     = NSPDatasetAE2(fib, args.digits, size=args.train_size)
         valset      = NSPDatasetAE2(fib, args.digits, args.digits//2, size=args.validation_size)
-        valset2      = NSPDatasetAE2(fib, args.digits+2, args.digits+1, size=args.validation_size)
-        testset      = NSPDatasetAE2(fib, args.digits+4, args.digits+2, size=args.validation_size)
+        valset2      = NSPDatasetAE2(fib, args.digits+4, args.digits+1, size=args.validation_size)
+        testset      = NSPDatasetAE2(fib, args.digits+8, args.digits+5, size=args.validation_size)
     elif args.seq_type == 'arith':
         dataset     = NSPDatasetAE2(arith, args.digits, size=args.train_size)
         valset      = NSPDatasetAE2(arith, args.digits, args.digits//2, size=args.validation_size)
-        valset2      = NSPDatasetAE2(arith, args.digits+2, args.digits+1, size=args.validation_size)
-        testset      = NSPDatasetAE2(arith, args.digits+4, args.digits+2, size=args.validation_size)
+        valset2      = NSPDatasetAE2(arith, args.digits+4, args.digits+1, size=args.validation_size)
+        testset      = NSPDatasetAE2(arith, args.digits+8, args.digits+5, size=args.validation_size)
     elif args.seq_type == 'copy' or args.seq_type == 'palin':
         dataset     = StringDataset(args.seq_type, args.digits, size=args.train_size)
         valset      = StringDataset(args.seq_type, args.digits, args.digits//2, size=args.validation_size)
-        valset2      = StringDataset(args.seq_type, args.digits+2, args.digits+1, size=args.validation_size)
-        testset      = StringDataset(args.seq_type, args.digits+4, args.digits+2, size=args.validation_size)
+        valset2      = StringDataset(args.seq_type, args.digits+4, args.digits+1, size=args.validation_size)
+        testset      = StringDataset(args.seq_type, args.digits+8, args.digits+5, size=args.validation_size)
     elif args.seq_type == 'ptbc':
         dataset     = PTBCDataset('train', minSeq = 16, maxSeq = 512) 
         valset      = PTBCDataset('valid', minSeq = 16, maxSeq = 512)
@@ -201,8 +201,8 @@ if __name__ == '__main__':
     elif args.seq_type == 'reduce':
         dataset     = ReductionDatasetAE2(args.digits, size=args.train_size)
         valset      = ReductionDatasetAE2(args.digits,args.digits//2, size=args.validation_size)
-        valset2      = ReductionDatasetAE2(args.digits+2,args.digits+1, size=args.validation_size) 
-        testset      = ReductionDatasetAE2(args.digits+4, args.digits+2, size=args.validation_size) 
+        valset2      = ReductionDatasetAE2(args.digits+3,args.digits+1, size=args.validation_size) 
+        testset      = ReductionDatasetAE2(args.digits+6, args.digits+4, size=args.validation_size) 
 
 
     if args.seq_type == 'ptbc': 
@@ -283,10 +283,10 @@ if __name__ == '__main__':
         model = Models.DNCAE(dmodel + dmodel//2, nhead, vocab_size=vocab_size).cuda()
     elif args.net == 'lsam':
         print('Executing LSAM model')
-        model = AM.LSAMAE(dmodel, nhead, vocab_size=vocab_size).cuda()
+        model = AM.LSAMAE(dmodel*2, nhead, vocab_size=vocab_size).cuda()
     elif args.net == 'namtm':
         print('Executing NAM TM model')
-        model = NAM.NAMTMAE(dmodel, vocab_size, nhead=nhead).cuda()
+        model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead).cuda()
 
     else :
         print('Network {} not supported'.format(args.net))
@@ -299,7 +299,7 @@ if __name__ == '__main__':
     valloader2   = DataLoader(valset2, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
     testloader   = DataLoader(testset, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
     optimizer   = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.lr/2)
-    scheduler   = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.97)
+    scheduler   = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.98)
     criterion   = nn.CrossEntropyLoss(reduction='none')
     nsamples = len(dataset)
     #torch.autograd.set_detect_anomaly(True)

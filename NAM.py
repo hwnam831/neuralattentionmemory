@@ -58,7 +58,7 @@ class NAMTuringNoJump(nn.Module):
         # (prev, next, no-op)
         #direction layers for read/write heads
         #action: (read_direction(3), write_direction(3), rwprob(2))
-        self.controller = nn.GRU(self.dim, self.dim//2,bidirectional=True)
+        self.controller = nn.LSTM(self.dim, self.dim//2,bidirectional=True)
         self.actionlayer = nn.Linear(self.dim, 8*self.n_tapes)
         self.valuelayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
         self.outlayer = nn.Linear(dim,dim)
