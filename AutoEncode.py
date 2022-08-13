@@ -287,6 +287,9 @@ if __name__ == '__main__':
     elif args.net == 'namtm':
         print('Executing NAM TM model')
         model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead).cuda()
+    elif args.net == 'ut':
+        print('Executing Universal Transformer model')
+        model = Models.UTAE(dmodel*3, nhead=nhead*3, num_layers=num_layers, vocab_size = vocab_size).cuda()
 
     else :
         print('Network {} not supported'.format(args.net))

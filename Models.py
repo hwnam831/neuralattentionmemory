@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from Encoder import CNNEncoder, XLNetEncoderLayer
 from dnc.dnc import DNC
+from models import UTransformer
 
 class TFEncoder(nn.Module):
     def __init__(self, model_size=512, nhead=2, num_layers=3):
@@ -297,3 +298,20 @@ class LSTMS2S(nn.Module):
         outputs, _ = self.attn(tgt_hid, outputs)
         outputs, state = self.decoder(self.dropout(outputs))
         return self.fc(self.dropout(outputs)).permute(1,2,0)
+
+class UTAE(nn.Module):
+    def __init__(self, model_size=64, nhead=4, num_layers=2, vocab_size=16):
+        super().__init__()
+        self.model_size=model_size
+        self.vocab_size = vocab_size
+        assert model_size%2 == 0
+        self.embedding = nn.Embedding(vocab_size, model_size)
+        self.cell = UTransformer.Encoder(model_size, model_size, num_layers, nhead, 
+            total_key_depth=model_size, total_value_depth=model_size, filter_size=model_size, layer_dropout=0.1)
+        self.fc = nn.Linear(model_size, vocab_size)
+
+    #Batch-first in (N,S), batch-first out (N,C,S)
+    def forward(self, input):
+
+        src = self.cell(self.embedding(input))[0] #UT takes N, S, C
+        return self.fc(src).permute(0,2,1)
