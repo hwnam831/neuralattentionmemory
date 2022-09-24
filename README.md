@@ -41,6 +41,6 @@ This repository follows the open-source policies of all of them.
 - DNC (`dnc/`): https://github.com/ixaxaar/pytorch-dnc
 - Universal Transformer (`models/`): https://github.com/andreamad8/Universal-Transformer-Pytorch
 - LSTM seq2seq (`Models.py`): https://github.com/pytorch/fairseq
-- Number Sequence Prediction dataset (`NSPDataset.py`): https://github.com/hwnam831/numbersequenceprediction
+- Number Sequence Prediction dataset (`NSPDataset.py, AutoEncode.py`): https://github.com/hwnam831/numbersequenceprediction
 - SCAN dataset (`SCAN/`): https://github.com/brendenlake/SCAN
 - XLNet (`XLNet.py`): https://github.com/huggingface/transformers
