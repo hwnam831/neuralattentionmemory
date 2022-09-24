@@ -2,14 +2,15 @@
 
 
 
-### Running I-BERT
+### Running Experiments
 
 -----
 
-I-BERT can be simply run from Bash. Below is the most core command line to run I-BERT. 
+`AutoEncode.py` is the code for running the experiments as below.  
+See `Options.py` for detailed options.
 
 ```bash
-python3 AutoEncode.py --net ibert
+python3 AutoEncode.py --net namtm --seq_type fib --digits 10 --log true --exp 0
 ```
 
 

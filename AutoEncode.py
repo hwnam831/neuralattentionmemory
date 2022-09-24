@@ -2,18 +2,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import argparse
 import Options
 import Models
-import IBERT
-import IBERT2
-from NSPDataset import ReductionDatasetAE2, NSPDatasetAE2, StringDataset, Token, fib, arith, palindrome, copy
-from PTBCDataset import PTBCDataset
-from PTBWDataset import PTBWDataset
+from NSPDataset import ReductionDatasetAE, NSPDatasetAE, StringDataset, fib, arith
 from SCANDataset import SCANDatasetAE
-import AM
 import NAM
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import time
 import math
 
@@ -169,49 +163,33 @@ if __name__ == '__main__':
     args = Options.get_args()
 
     if args.seq_type == 'fib':
-        dataset     = NSPDatasetAE2(fib, args.digits, size=args.train_size)
-        valset      = NSPDatasetAE2(fib, args.digits, args.digits//2, size=args.validation_size)
-        valset2      = NSPDatasetAE2(fib, args.digits+4, args.digits+1, size=args.validation_size)
-        testset      = NSPDatasetAE2(fib, args.digits+8, args.digits+5, size=args.validation_size)
+        dataset     = NSPDatasetAE(fib, args.digits, size=args.train_size)
+        valset      = NSPDatasetAE(fib, args.digits, args.digits//2, size=args.validation_size)
+        valset2      = NSPDatasetAE(fib, args.digits+4, args.digits+1, size=args.validation_size)
+        testset      = NSPDatasetAE(fib, args.digits+8, args.digits+5, size=args.validation_size)
     elif args.seq_type == 'arith':
-        dataset     = NSPDatasetAE2(arith, args.digits, size=args.train_size)
-        valset      = NSPDatasetAE2(arith, args.digits, args.digits//2, size=args.validation_size)
-        valset2      = NSPDatasetAE2(arith, args.digits+4, args.digits+1, size=args.validation_size)
-        testset      = NSPDatasetAE2(arith, args.digits+8, args.digits+5, size=args.validation_size)
+        dataset     = NSPDatasetAE(arith, args.digits, size=args.train_size)
+        valset      = NSPDatasetAE(arith, args.digits, args.digits//2, size=args.validation_size)
+        valset2      = NSPDatasetAE(arith, args.digits+4, args.digits+1, size=args.validation_size)
+        testset      = NSPDatasetAE(arith, args.digits+8, args.digits+5, size=args.validation_size)
     elif args.seq_type == 'copy' or args.seq_type == 'palin':
         dataset     = StringDataset(args.seq_type, args.digits, size=args.train_size)
         valset      = StringDataset(args.seq_type, args.digits, args.digits//2, size=args.validation_size)
         valset2      = StringDataset(args.seq_type, args.digits+4, args.digits+1, size=args.validation_size)
         testset      = StringDataset(args.seq_type, args.digits+8, args.digits+5, size=args.validation_size)
-    elif args.seq_type == 'ptbc':
-        dataset     = PTBCDataset('train', minSeq = 16, maxSeq = 512) 
-        valset      = PTBCDataset('valid', minSeq = 16, maxSeq = 512)
-        valset2      = PTBCDataset('valid', minSeq = 16, maxSeq = 512) 
-        testset      = PTBCDataset('test', minSeq = 16, maxSeq = 512) 
-    elif args.seq_type == 'ptbw':
-        dataset     = PTBWDataset('train', minSeq = 2, maxSeq = 64) 
-        valset      = PTBWDataset('valid', minSeq = 2, maxSeq = 64)
-        valset2      = PTBWDataset('valid', minSeq = 2, maxSeq = 64) 
-        testset      = PTBWDataset('test', minSeq = 2, maxSeq = 64) 
     elif args.seq_type == 'scan':
         dataset     = SCANDatasetAE('SCAN/length_split/tasks_train_length.txt') 
         valset      = SCANDatasetAE('SCAN/simple_split/tasks_test_simple.txt')
         valset2      = SCANDatasetAE('SCAN/length_split/tasks_test_length.txt') 
         testset      = SCANDatasetAE('SCAN/length_split/tasks_test_length.txt') 
     elif args.seq_type == 'reduce':
-        dataset     = ReductionDatasetAE2(args.digits, size=args.train_size)
-        valset      = ReductionDatasetAE2(args.digits,args.digits//2, size=args.validation_size)
-        valset2      = ReductionDatasetAE2(args.digits+3,args.digits+1, size=args.validation_size) 
-        testset      = ReductionDatasetAE2(args.digits+6, args.digits+4, size=args.validation_size) 
+        dataset     = ReductionDatasetAE(args.digits, size=args.train_size)
+        valset      = ReductionDatasetAE(args.digits,args.digits//2, size=args.validation_size)
+        valset2      = ReductionDatasetAE(args.digits+3,args.digits+1, size=args.validation_size) 
+        testset      = ReductionDatasetAE(args.digits+6, args.digits+4, size=args.validation_size) 
 
 
-    if args.seq_type == 'ptbc': 
-        vocab_size = dataset.vocab_size
-        dictionary = dataset.wordtoix
-    elif args.seq_type == 'ptbw': 
-        vocab_size = dataset.vocab_size
-        dictionary = dataset.wordtoix
-    elif args.seq_type == 'scan': 
+    if args.seq_type == 'scan': 
         vocab_size = dataset.vocab_size
         dictionary = dataset.wordtoix
     elif args.seq_type == 'reduce': 
@@ -249,43 +227,28 @@ if __name__ == '__main__':
 
 
     if args.net == 'tf':
-        print('Executing Autoencoder model with TfAE Model')
+        print('Executing Autoencoder model with Transformer AE Model')
         model = Models.TfAE(dmodel, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
     elif args.net == 'cnn':
-        print('Executing Autoencoder model with CNNAE Model')
+        print('Executing Autoencoder model with CNN AE Model')
         model = Models.CNNAE(dmodel, vocab_size = vocab_size).cuda()
     elif args.net == 'xlnet':
         print('Executing Autoencoder model with XLNet-like Model')
         model = Models.XLNetAE(dmodel, vocab_size = vocab_size, num_layers=num_layers, nhead=nhead).cuda()
-    elif args.net == 'ibert':
-        print('Executing Autoencoder model with IBERT\'s Architecture')
-        model = IBERT.IBERTAE(dmodel, vocab_size = vocab_size, num_layers=num_layers, nhead=nhead).cuda()
-    elif args.net == 'ibertpos':
-        print('Executing Autoencoder model with IBERT+Pos\'s Architecture')
-        model = IBERT.IBERTPosAE(dmodel, vocab_size = vocab_size, num_layers=num_layers, nhead=nhead).cuda()
-    elif args.net == 'ibert2':
-        print('Executing Autoencoder model with IBERT2\'s Architecture')
-        model = AM.AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size, attn=AM.GatedAM).cuda()
-    elif args.net == 'gru':
-        print('Executing Autoencoder model with GRU w.o. Attention')
-        model = Models.GRUAE(dmodel, vocab_size = vocab_size).cuda()
     elif args.net == 'lstm':
         print('Executing Autoencoder model with LSTM including Attention')
-        model = IBERT.LSTMAE(int(dmodel*math.sqrt(num_layers)), vocab_size = vocab_size).cuda()
-    elif args.net == 'nam':
-        print('Executing NAM Autoencoder model')
+        model = Models.LSTMAE(int(dmodel*math.sqrt(num_layers)), vocab_size = vocab_size).cuda()
+    elif args.net == 'nojump':
+        print('Executing NAM-TM without JMP')
         model = NAM.NAMTMNJ(dmodel*2, vocab_size, nhead=nhead).cuda()
-    elif args.net == 'linear':
-        print('Executing Linear Attention Autoencoder model')
-        model = AM.AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size, attn=AM.LinearAttention).cuda()
     elif args.net == 'dnc':
         print('Executing DNC model')
         model = Models.DNCAE(dmodel + dmodel//2, nhead, vocab_size=vocab_size).cuda()
     elif args.net == 'lsam':
         print('Executing LSAM model')
-        model = AM.LSAMAE(dmodel*2, nhead, vocab_size=vocab_size).cuda()
+        model = NAM.LSAMAE(dmodel*2, nhead, vocab_size=vocab_size).cuda()
     elif args.net == 'namtm':
-        print('Executing NAM TM model')
+        print('Executing NAM-TM model')
         model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead).cuda()
     elif args.net == 'ut':
         print('Executing Universal Transformer model')

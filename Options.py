@@ -13,12 +13,12 @@ def count_params(model):
 
 def get_args():
     """Get all the args"""
-    parser = argparse.ArgumentParser(description="CS546 Project: Trasnformer Generalization to Arbitary Context Lengths")
+    parser = argparse.ArgumentParser(description="Neural Attention Memory")
     parser.add_argument(
             "--net",
             type=str,
-            choices=['tf', 'cnn', 'gru', 'lstm', 'xlnet', 'ibert', 'ibertpos', 'ibert2', 'nam', 'linear', 'dnc', 'lsam', 'namtm', 'ut'],
-            default='lsam',
+            choices=['tf', 'cnn', 'lstm', 'xlnet', 'nojump', 'dnc', 'lsam', 'namtm', 'ut'],
+            default='namtm',
             help='network choices')
     parser.add_argument(
             "--epochs",
@@ -54,9 +54,9 @@ def get_args():
     parser.add_argument(
             "--seq_type",
             type=str,
-            choices= ['fib', 'arith', 'palin', 'copy', 'ptbc', 'ptbw', 'scan', 'reduce'],
+            choices= ['fib', 'arith', 'palin', 'copy', 'scan', 'reduce'],
             default='fib',
-            help='fib: fibonacci / arith: arithmetic / palin: palindrome / ptbc: ptb char / ptbw: ptb word')
+            help='fib: fibonacci / arith: arithmetic / palin: palindrome / reduce: reduction / scan: SCAN')
     parser.add_argument(
             "--lr",
             type=float,
