@@ -1,6 +1,7 @@
 # Neural Attention Memory
 
 This is the repository for Neural Attention Memory paper experiments.
+Clone with `--recurse-submodules` to load the SCAN dataset.
 
 ## Requirements
 - CUDA-capable GPU (Tested on RTX 3080 10GB)
