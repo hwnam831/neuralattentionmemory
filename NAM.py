@@ -257,3 +257,37 @@ class NAMTMAE(nn.Module):
 
         #S,N,C to N,C,S
         return self.fc(outputs).permute(1,2,0)
+
+class NAMTMNJ(nn.Module):
+    def __init__(self, dim, vocab_size, nhead=4, defalt_tapelen=32):
+        super().__init__()
+        self.dim=dim
+        self.embedding = nn.Sequential(nn.Embedding(vocab_size, dim),
+                                        nn.Linear(dim, dim),
+                                     nn.Dropout(0.2))
+        #self.rnnlayer = nn.LSTM(self.dim, self.dim//2, num_layers=1, bidirectional=True)
+        #self.rnnlayer = AM.BLSAM(self.dim, self.dim, nhead=nhead)
+        self.encnorm = nn.LayerNorm(self.dim)
+
+        self.tm = NAMTuringNoJump(dim, n_tapes=nhead, default_tapelen=defalt_tapelen)
+        self.tm2 = NAMTuringNoJump(dim, n_tapes=nhead, default_tapelen=defalt_tapelen)
+        self.attn = NAMAttention(dim, nhead=nhead)
+        self.fc = nn.Sequential(nn.LayerNorm(dim),
+            nn.Dropout(0.1), nn.ReLU(),
+            nn.Linear(dim, vocab_size))
+
+    #Batch-first in (N,S), batch-first out (N,C,S)
+    def forward(self, input):
+        input2 = input.permute(1,0)
+
+        src = self.embedding(input2)
+        #src, _ = self.rnnlayer(src)
+        src = self.encnorm(src)
+        outputs, tape = self.tm(src)
+        outputs, tape = self.tm2(src, tape_in=tape)
+
+        #res, _ = self.attn(src, tape)
+        #outputs = res + src
+
+        #S,N,C to N,C,S
+        return self.fc(outputs).permute(1,2,0)

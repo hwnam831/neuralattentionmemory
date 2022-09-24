@@ -274,7 +274,7 @@ if __name__ == '__main__':
         model = IBERT.LSTMAE(int(dmodel*math.sqrt(num_layers)), vocab_size = vocab_size).cuda()
     elif args.net == 'nam':
         print('Executing NAM Autoencoder model')
-        model = AM.AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size).cuda()
+        model = NAM.NAMTMNJ(dmodel*2, vocab_size, nhead=nhead).cuda()
     elif args.net == 'linear':
         print('Executing Linear Attention Autoencoder model')
         model = AM.AMEncoder(dmodel, nhead=nhead, num_layers=num_layers, vocab_size=vocab_size, attn=AM.LinearAttention).cuda()
