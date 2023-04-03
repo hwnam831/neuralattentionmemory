@@ -163,7 +163,7 @@ if __name__ == '__main__':
     args = Options.get_args()
 
     if args.seq_type == 'fib':
-        '''
+        
         dataset     = NSPDatasetAE(fib, args.digits, size=args.train_size)
         valset      = NSPDatasetAE(fib, args.digits, args.digits//2, size=args.validation_size)
         valset2      = NSPDatasetAE(fib, args.digits+6, args.digits+1, size=args.validation_size)
@@ -173,6 +173,7 @@ if __name__ == '__main__':
         valset      = NSPDatasetV2('fib', args.digits, args.digits//2, size=args.validation_size)
         valset2      = NSPDatasetV2('fib', args.digits+6, args.digits+1, size=args.validation_size)
         testset      = NSPDatasetV2('fib', args.digits+12, args.digits+7, size=args.validation_size)
+        '''
     elif args.seq_type == 'arith':
         dataset     = NSPDatasetAE(arith, args.digits, size=args.train_size)
         valset      = NSPDatasetAE(arith, args.digits, args.digits//2, size=args.validation_size)

@@ -1,6 +1,7 @@
 # Code modified from https://github.com/hwnam831/numbersequenceprediction
 
 import torch
+import random
 import numpy as np
 from torch.utils.data import Dataset, DataLoader
 
@@ -72,7 +73,7 @@ class NSPDatasetAE(Dataset):
         self.size = size
         self.lendian = lendian
         self.numbers = numbers
-        self.maxlen = (maxdigits+1)*(numbers+1) + 2
+        self.maxlen = (maxdigits+2)*(numbers+1) + 3
         self.inputs = np.ones([size, self.maxlen], dtype=np.int64)*Token.pad
         self.targets = np.ones([size, self.maxlen], dtype=np.int64)*Token.pad
         self.iscreated = [False for i in range(size)]
@@ -83,9 +84,9 @@ class NSPDatasetAE(Dataset):
     def __getitem__(self, idx):
         if not self.iscreated[idx]:
             ndigits = ((self.maxdigits-self.mindigits+1)*idx)//self.size + self.mindigits
-            s1digits = np.random.randint(1, ndigits+1, dtype=np.int64)
-            seed1 = np.random.randint(1, (10**s1digits)-1, dtype=np.int64)
-            seed2 = np.random.randint(10**(ndigits-1), 10**ndigits, dtype=np.int64)
+            s1digits = random.randint(1, ndigits+1)
+            seed1 = random.randint(1, (10**s1digits)-1)
+            seed2 = random.randint(10**(ndigits-1), 10**ndigits-1)
             seq, target = self.rule(seed1, seed2, self.numbers)
             pos = 1
             self.inputs[idx][0] = Token.delim
@@ -108,7 +109,7 @@ class NSPDatasetAE(Dataset):
             self.targets[idx][pos+len(y)] = Token.eos
 
             if pos+len(y)+1 < self.maxlen:
-                shift = np.random.randint(0, self.maxlen-pos-len(y)-1, dtype=np.int64)
+                shift = random.randint(0, self.maxlen-pos-len(y)-2)
                 curinput = self.inputs[idx][:pos+len(y)+1].copy()
                 curtarget = self.targets[idx][:pos+len(y)+1].copy()
                 self.inputs[idx][:shift] = Token.pad
@@ -121,19 +122,7 @@ class NSPDatasetAE(Dataset):
 
         return self.inputs[idx], self.targets[idx]
 
-def fibv2(seq1, seq2):
-    seq = [seed1, seed2]
-    for i in range(2, numbers):
-        seq.append(seq[i-2]+seq[i-1])
-    target = seq[-2]+seq[-1]
-    return seq, target
 
-def arithv2(seed1, seed2, numbers):
-    seq = [seed1, seed2] if seed1<seed2 else [seed2,seed1]
-    for i in range(2, numbers):
-        seq.append(2*seq[i-1]-seq[i-2])
-    target = 2*seq[-1]-seq[-2]
-    return seq, target
 
 #To handle long Integer
 class NSPDatasetV2(Dataset):
@@ -312,9 +301,10 @@ def printseq2(x,y):
 
 if __name__ == '__main__':
     
-    #dataset = NSPDatasetAE(copy,5,1, numbers=2)
+    #dataset = NSPDatasetV2('fib',5,1)
+    dataset = NSPDatasetAE(fib,24,1)
     #dataset = StringDataset('copy', 5, 1, size=256)
-    dataset = ReductionDatasetAE(12,8,size=512)
+    #dataset = ReductionDatasetAE(12,8,size=512)
     loader = DataLoader(dataset, batch_size=4)
     for i in range(10):
         idx = np.random.randint(0,len(dataset))
