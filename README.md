@@ -45,3 +45,16 @@ This repository follows the open-source policies of all of them.
 - Number Sequence Prediction dataset (`NSPDataset.py, AutoEncode.py`): https://github.com/hwnam831/numbersequenceprediction
 - SCAN dataset (`SCAN/`): https://github.com/brendenlake/SCAN
 - XLNet (`XLNet.py`): https://github.com/huggingface/transformers
+
+## TODO
+- DNC-MDS (Done) - 55%?
+- Change to Longint
+- Ablation (No L/R, R/W prob, No erase)
+- UT+Rel
+- STM
+- Priority Sort
+- NFAR
+- Associative Recall
+- RAR
+- babi 1k?
+- TSP?

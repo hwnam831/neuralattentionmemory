@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 import Options
 import Models
-from NSPDataset import ReductionDatasetAE, NSPDatasetAE, StringDataset, fib, arith
+from NSPDataset import ReductionDatasetAE, NSPDatasetAE, NSPDatasetV2, StringDataset, fib, arith
 from SCANDataset import SCANDatasetAE
 import NAM
 from torch.utils.data import DataLoader
@@ -163,20 +163,26 @@ if __name__ == '__main__':
     args = Options.get_args()
 
     if args.seq_type == 'fib':
+        '''
         dataset     = NSPDatasetAE(fib, args.digits, size=args.train_size)
         valset      = NSPDatasetAE(fib, args.digits, args.digits//2, size=args.validation_size)
-        valset2      = NSPDatasetAE(fib, args.digits+4, args.digits+1, size=args.validation_size)
-        testset      = NSPDatasetAE(fib, args.digits+8, args.digits+5, size=args.validation_size)
+        valset2      = NSPDatasetAE(fib, args.digits+6, args.digits+1, size=args.validation_size)
+        testset      = NSPDatasetAE(fib, args.digits+12, args.digits+7, size=args.validation_size)
+        '''
+        dataset     = NSPDatasetV2('fib', args.digits, size=args.train_size)
+        valset      = NSPDatasetV2('fib', args.digits, args.digits//2, size=args.validation_size)
+        valset2      = NSPDatasetV2('fib', args.digits+6, args.digits+1, size=args.validation_size)
+        testset      = NSPDatasetV2('fib', args.digits+12, args.digits+7, size=args.validation_size)
     elif args.seq_type == 'arith':
         dataset     = NSPDatasetAE(arith, args.digits, size=args.train_size)
         valset      = NSPDatasetAE(arith, args.digits, args.digits//2, size=args.validation_size)
-        valset2      = NSPDatasetAE(arith, args.digits+4, args.digits+1, size=args.validation_size)
-        testset      = NSPDatasetAE(arith, args.digits+8, args.digits+5, size=args.validation_size)
+        valset2      = NSPDatasetAE(arith, args.digits+6, args.digits+1, size=args.validation_size)
+        testset      = NSPDatasetAE(arith, args.digits+12, args.digits+7, size=args.validation_size)
     elif args.seq_type == 'copy' or args.seq_type == 'palin':
         dataset     = StringDataset(args.seq_type, args.digits, size=args.train_size)
         valset      = StringDataset(args.seq_type, args.digits, args.digits//2, size=args.validation_size)
-        valset2      = StringDataset(args.seq_type, args.digits+4, args.digits+1, size=args.validation_size)
-        testset      = StringDataset(args.seq_type, args.digits+8, args.digits+5, size=args.validation_size)
+        valset2      = StringDataset(args.seq_type, args.digits+6, args.digits+1, size=args.validation_size)
+        testset      = StringDataset(args.seq_type, args.digits+12, args.digits+7, size=args.validation_size)
     elif args.seq_type == 'scan':
         dataset     = SCANDatasetAE('SCAN/length_split/tasks_train_length.txt') 
         valset      = SCANDatasetAE('SCAN/simple_split/tasks_test_simple.txt')
@@ -185,8 +191,8 @@ if __name__ == '__main__':
     elif args.seq_type == 'reduce':
         dataset     = ReductionDatasetAE(args.digits, size=args.train_size)
         valset      = ReductionDatasetAE(args.digits,args.digits//2, size=args.validation_size)
-        valset2      = ReductionDatasetAE(args.digits+3,args.digits+1, size=args.validation_size) 
-        testset      = ReductionDatasetAE(args.digits+6, args.digits+4, size=args.validation_size) 
+        valset2      = ReductionDatasetAE(args.digits+6,args.digits+1, size=args.validation_size) 
+        testset      = ReductionDatasetAE(args.digits+12, args.digits+7, size=args.validation_size) 
 
 
     if args.seq_type == 'scan': 
@@ -243,13 +249,14 @@ if __name__ == '__main__':
         model = NAM.NAMTMNJ(dmodel*2, vocab_size, nhead=nhead).cuda()
     elif args.net == 'dnc':
         print('Executing DNC model')
-        model = Models.DNCAE(dmodel + dmodel//2, nhead, vocab_size=vocab_size).cuda()
+        #model = Models.DNCAE(dmodel + dmodel//2, nhead, vocab_size=vocab_size).cuda()
+        model = Models.DNCMDSAE(dmodel*2, nhead, vocab_size=vocab_size).cuda()
     elif args.net == 'lsam':
         print('Executing LSAM model')
         model = NAM.LSAMAE(dmodel*2, nhead, vocab_size=vocab_size).cuda()
     elif args.net == 'namtm':
         print('Executing NAM-TM model')
-        model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead).cuda()
+        model = NAM.NAMTMAE(dmodel + dmodel//2, vocab_size, nhead=nhead).cuda()
     elif args.net == 'ut':
         print('Executing Universal Transformer model')
         model = Models.UTAE(dmodel*3, nhead=nhead*3, num_layers=num_layers, vocab_size = vocab_size).cuda()

@@ -3,7 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from Encoder import CNNEncoder, XLNetEncoderLayer
 from dnc.dnc import DNC
+from dncmds.Models.DNC import DNC as DNCMDS
+from dncmds.Models.DNC import LSTMController
 from models import UTransformer
+import functools
 
 class TFEncoder(nn.Module):
     def __init__(self, model_size=512, nhead=2, num_layers=3):
@@ -133,6 +136,7 @@ class DNCAE(nn.Module):
         self.model_size=model_size
         self.vocab_size = vocab_size
         self.embedding = nn.Embedding(vocab_size, model_size)
+        
         self.cell = DNC(input_size=model_size,
             hidden_size=model_size,
             batch_first=True,
@@ -146,6 +150,22 @@ class DNCAE(nn.Module):
     #Batch-first in (N,S), batch-first out (N,C,S)
     def forward(self, input):
         src = self.cell(self.embedding(input))[0] #N, S, C
+        return self.fc(src).permute(0,2,1)
+
+class DNCMDSAE(nn.Module):
+    def __init__(self, model_size=64, nhead=4, nr_cells=32, vocab_size=16, mem_size=64):
+        super().__init__()
+        self.model_size=model_size
+        self.vocab_size = vocab_size
+        self.embedding = nn.Embedding(vocab_size, model_size)
+
+        self.cell = DNCMDS(model_size, model_size, mem_size, nr_cells, nhead, LSTMController([model_size]),
+                           batch_first=True,mask=True, dealloc_content=True, link_sharpness_control=True)
+        
+        self.fc = nn.Linear(model_size, vocab_size)
+    #Batch-first in (N,S), batch-first out (N,C,S)
+    def forward(self, input):
+        src = self.cell(self.embedding(input)) #N, S, C
         return self.fc(src).permute(0,2,1)
 
 # From https://github.com/pytorch/fairseq/blob/master/fairseq/models/lstm.py

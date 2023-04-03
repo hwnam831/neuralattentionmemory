@@ -77,23 +77,24 @@ class NAMTuringNoJump(nn.Module):
         return outputs, tape.reshape(tapelen, batchsize, self.dim)
 
 class NAMTuring(nn.Module):
-    def __init__(self,dim, n_tapes=4, default_tapelen=32):
+    def __init__(self,dim, n_tapes=4, default_tapelen=32, mem_size=64):
         super().__init__()
         assert dim%n_tapes == 0
-        self.head_dim=dim//n_tapes
+        self.head_dim=mem_size
         self.dim = dim
         self.n_tapes = n_tapes
         self.default_tapelen = default_tapelen
         # (prev, next, no-op, jump)
         #direction layers for read/write heads
         #action: (read_direction(4), write_direction(4), rwprob(2))
-        self.controller = nn.GRU(self.dim, self.dim//2,bidirectional=True)
+        #self.controller = nn.LSTM(self.dim, self.dim//2,bidirectional=True)
+        self.controller = nn.LSTM(self.dim, self.dim,bidirectional=False)
         self.actionlayer = nn.Linear(self.dim, 10*self.n_tapes)
         self.valuelayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
         self.keylayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
-        self.outlayer = nn.Linear(dim,dim)
-        self.Wk = nn.Linear(self.head_dim, self.head_dim)
-        self.Wq = nn.Linear(self.dim, self.dim)
+        self.outlayer = nn.Linear(self.head_dim*self.n_tapes,dim)
+
+        self.Wq = nn.Linear(self.dim, self.head_dim*self.n_tapes)
         
     #Seq-first in (S,N,C), seq-first out (S,N,C)
     #Stack: initial stack state (zeros or null embeddings)
@@ -158,7 +159,7 @@ class NAMTuring(nn.Module):
             
         outputs = torch.stack(read_outs).reshape(seqlen,batchsize,-1)
         outputs = self.outlayer(outputs)
-        return outputs, tape.reshape(tapelen, batchsize, self.dim)
+        return outputs, tape.reshape(tapelen, batchsize, self.head_dim*self.n_tapes)
 
 class NAMTMAE(nn.Module):
     def __init__(self, dim, vocab_size, nhead=4, defalt_tapelen=32):

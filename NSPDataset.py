@@ -121,6 +121,101 @@ class NSPDatasetAE(Dataset):
 
         return self.inputs[idx], self.targets[idx]
 
+def fibv2(seq1, seq2):
+    seq = [seed1, seed2]
+    for i in range(2, numbers):
+        seq.append(seq[i-2]+seq[i-1])
+    target = seq[-2]+seq[-1]
+    return seq, target
+
+def arithv2(seed1, seed2, numbers):
+    seq = [seed1, seed2] if seed1<seed2 else [seed2,seed1]
+    for i in range(2, numbers):
+        seq.append(2*seq[i-1]-seq[i-2])
+    target = 2*seq[-1]-seq[-2]
+    return seq, target
+
+#To handle long Integer
+class NSPDatasetV2(Dataset):
+    def __init__(self, rule, maxdigits, mindigits=1, size=25600, lendian=True):
+        self.rule = rule
+        assert maxdigits > mindigits
+        self.maxdigits = maxdigits
+        self.mindigits = mindigits
+        self.size = size
+        self.lendian = lendian
+
+        self.maxlen = (maxdigits+1)*3 + 2
+        self.inputs = np.ones([size, self.maxlen], dtype=np.int64)*Token.pad
+        self.targets = np.ones([size, self.maxlen], dtype=np.int64)*Token.pad
+        self.iscreated = [False for i in range(size)]
+
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        if not self.iscreated[idx]:
+            ndigits = ((self.maxdigits-self.mindigits+1)*idx)//self.size + self.mindigits
+
+            #s1digits = np.random.randint(1, ndigits+1, dtype=np.int64)
+            seq1 = [np.random.randint(0,10) for _ in range(ndigits)]
+            seq2 = [np.random.randint(0,10) for _ in range(ndigits)]
+            seq2[-1] = np.random.randint(1,10) # make sure ndigits
+            if self.rule=='fib':
+                target = [0 for _ in range(ndigits+1)]
+                carry = 0
+                for i in range(ndigits):
+                    target[i] = (seq1[i]+seq2[i] + carry)%10
+                    carry = (seq1[i]+seq2[i] + carry)//10
+                target[-1]=carry
+            elif self.rule=='arith':
+                target = []
+                carry = 0
+                for i in range(ndigits):
+                    target[i] = (2*seq1[i]-seq2[i] + carry)%10
+                    carry = (2*seq1[i]-seq2[i] + carry)//10
+                target[-1]=carry
+            else:
+                print("Wrong sequence type!")
+                assert False
+            pos = 1
+            self.inputs[idx][0] = Token.delim
+            self.targets[idx][0] = Token.delim
+            
+            self.inputs[idx][pos:pos+len(seq1)] = seq1
+            self.targets[idx][pos:pos+len(seq1)] = seq1
+            self.inputs[idx][pos+len(seq1)] = Token.delim
+            self.targets[idx][pos+len(seq1)] = Token.delim
+            pos = pos + len(seq1) + 1
+
+            self.inputs[idx][pos:pos+len(seq2)] = seq2
+            self.targets[idx][pos:pos+len(seq2)] = seq2
+            self.inputs[idx][pos+len(seq2)] = Token.delim
+            self.targets[idx][pos+len(seq2)] = Token.delim
+            pos = pos + len(seq2) + 1
+            
+
+            y = target
+
+            self.inputs[idx][pos:pos+len(y)] = Token.mask
+            self.targets[idx][pos:pos+len(y)] = y
+            self.inputs[idx][pos+len(y)] = Token.eos
+            self.targets[idx][pos+len(y)] = Token.eos
+
+            if pos+len(y)+1 < self.maxlen:
+                shift = np.random.randint(0, self.maxlen-pos-len(y)-1, dtype=np.int64)
+                curinput = self.inputs[idx][:pos+len(y)+1].copy()
+                curtarget = self.targets[idx][:pos+len(y)+1].copy()
+                self.inputs[idx][:shift] = Token.pad
+                self.inputs[idx][shift:shift+pos+len(y)+1] = curinput
+                self.targets[idx][:shift] = Token.pad
+                self.targets[idx][shift:shift+pos+len(y)+1] = curtarget
+            
+            self.iscreated[idx] = True
+
+
+        return self.inputs[idx], self.targets[idx]
+
 #exclusive for copy and palindrome datasets
 class StringDataset(Dataset):
     def __init__(self, rule, maxdigits, mindigits=1, size=25600):
