@@ -1,3 +1,5 @@
+# modified from the original code of https://github.com/huggingface/transformers
+
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
