@@ -1,9 +1,9 @@
 [submodule "SCAN"]
 	path = SCAN
 	url = https://github.com/brendenlake/SCAN
-[submodule "dncmds"]
-	path = dncmds
-	url = https://github.com/RobertCsordas/dnc
 [submodule "transformer_generalization"]
 	path = transformer_generalization
 	url = https://github.com/hwnam831/transformer_generalization
+[submodule "dncmds"]
+	path = dncmds
+	url = https://github.com/RobertCsordas/dnc
