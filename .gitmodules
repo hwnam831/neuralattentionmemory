@@ -6,4 +6,4 @@
 	url = https://github.com/RobertCsordas/dnc
 [submodule "transformer_generalization"]
 	path = transformer_generalization
-	url = https://github.com/RobertCsordas/transformer_generalization
+	url = https://github.com/hwnam831/transformer_generalization
