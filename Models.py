@@ -7,6 +7,9 @@ from dncmds.Models.DNC import DNC as DNCMDS
 from dncmds.Models.DNC import LSTMController
 from models import UTransformer
 import functools
+from transformer_generalization.layers.transformer.universal_transformer import UniversalTransformerEncoder
+from transformer_generalization.layers.transformer.universal_relative_transformer import RelativeTransformerEncoderLayer
+
 
 class TFEncoder(nn.Module):
     def __init__(self, model_size=512, nhead=2, num_layers=3):
@@ -228,4 +231,21 @@ class UTAE(nn.Module):
     def forward(self, input):
 
         src = self.cell(self.embedding(input))[0] #UT takes N, S, C
+        return self.fc(src).permute(0,2,1)
+    
+class UTRelAE(nn.Module):
+    def __init__(self, model_size=64, nhead=4, num_layers=2, vocab_size=16):
+        super().__init__()
+        self.model_size=model_size
+        self.vocab_size = vocab_size
+        assert model_size%2 == 0
+        self.embedding = nn.Embedding(vocab_size, model_size)
+        self.cell = UniversalTransformerEncoder(RelativeTransformerEncoderLayer,
+                                                depth=num_layers, d_model=model_size, nhead=nhead)
+        self.fc = nn.Linear(model_size, vocab_size)
+
+    #Batch-first in (N,S), batch-first out (N,C,S)
+    def forward(self, input):
+
+        src = self.cell(self.embedding(input)) #UT takes N, S, C
         return self.fc(src).permute(0,2,1)

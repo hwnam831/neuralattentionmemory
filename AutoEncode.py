@@ -32,7 +32,7 @@ def train(model, trainloader, criterion, optimizer, scheduler):
             bits += (loss*ismask).sum().item()
 
             tloss       = tloss + loss.mean().item()
-            nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+            nn.utils.clip_grad_norm_(model.parameters(), 0.1)
             optimizer.step()
             
             pred        = output.argmax(axis=1)
@@ -257,11 +257,11 @@ if __name__ == '__main__':
         model = NAM.LSAMAE(dmodel*2, nhead, vocab_size=vocab_size).cuda()
     elif args.net == 'namtm':
         print('Executing NAM-TM model')
-        model = NAM.NAMTMAE(dmodel + dmodel//2, vocab_size, nhead=nhead).cuda()
+        model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead).cuda()
     elif args.net == 'ut':
         print('Executing Universal Transformer model')
-        model = Models.UTAE(dmodel*3, nhead=nhead*3, num_layers=num_layers, vocab_size = vocab_size).cuda()
-
+        #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
+        model = Models.UTRelAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
     else :
         print('Network {} not supported'.format(args.net))
         exit()

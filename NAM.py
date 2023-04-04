@@ -172,7 +172,7 @@ class NAMTMAE(nn.Module):
         self.encnorm = nn.LayerNorm(self.dim)
 
         self.tm = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen)
-        self.tm2 = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen)
+        #self.tm2 = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen)
         self.fc = nn.Sequential(nn.LayerNorm(dim),
             nn.Dropout(0.1), nn.ReLU(),
             nn.Linear(dim, vocab_size))
@@ -185,7 +185,7 @@ class NAMTMAE(nn.Module):
 
         src = self.encnorm(src)
         outputs, tape = self.tm(src)
-        outputs, tape = self.tm2(src, tape_in=tape)
+        #outputs, tape = self.tm2(src, tape_in=tape)
 
         #S,N,C to N,C,S
         return self.fc(outputs).permute(1,2,0)
