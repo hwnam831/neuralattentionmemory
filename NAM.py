@@ -93,7 +93,7 @@ class NAMTuring(nn.Module):
         #action: (read_direction(4), write_direction(4), rwprob(2))
         #self.controller = nn.LSTM(self.dim, self.dim//2,bidirectional=True)
         self.controller = nn.LSTM(self.dim, self.dim,bidirectional=False)
-        self.layernorm = nn.LayerNorm(self.dim)
+
         self.actionlayer = nn.Linear(self.dim, 10*self.n_tapes)
         self.valuelayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
         self.keylayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
@@ -108,8 +108,7 @@ class NAMTuring(nn.Module):
         batchsize = inputs.shape[1]
 
         values = self.valuelayer(inputs).reshape(seqlen, batchsize, self.n_tapes, self.head_dim)
-        #if self.noerase:
-        #    values = unitnorm(values)
+
         
         keys = self.keylayer(inputs).reshape(seqlen, batchsize, self.n_tapes, self.head_dim)
         keys = unitnorm(keys)
@@ -131,7 +130,7 @@ class NAMTuring(nn.Module):
        
         #(S,N,C) -> (S,N,nh,8)
         hidden, _ = self.controller(inputs)
-        #hidden = self.layernorm(hidden)
+
         actions = self.actionlayer(hidden).reshape(seqlen,batchsize,self.n_tapes,10)
         directions_r = F.softmax(actions[:,:,:,:4], dim=-1)
         directions_w = F.softmax(actions[:,:,:,4:8], dim=-1)
@@ -316,8 +315,8 @@ class NAMTuring2(nn.Module):
                 assert not tape_key.isinf().any()
             jpos = torch.einsum('lntc,ntc->lnt',tape_key,queries[i])
             #jpos = torch.softmax(jpos/math.sqrt(tapelen),dim=0)
-            #jpos = F.hardsigmoid(jpos)
-            jpos = F.normalize(jpos,dim=0)
+            jpos = F.hardtanh(jpos)
+            #jpos = F.normalize(jpos,dim=0)
             next_w = torch.roll(rpos, 1, dims=0)
             prev_w = torch.roll(rpos, -1, dims=0)
             if self.debug:

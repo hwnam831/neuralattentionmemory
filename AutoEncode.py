@@ -138,7 +138,7 @@ def validate(model, valloader, valloader2, testloader, args):
         #Sequence accuracy
         
 
-        return model, accuracyResult
+        return model, accuracyResult, tcorrect/tlen
 
 def logger(args, timestamp, epoch, contents):
     with open(str("log/") + str(args.exp) + " " + str(time.strftime("%Y-%m-%d %H:%M:%S", timestamp)) + " "+ str(args.seq_type) + " " + str(args.net) +".log", "a+") as fd:
@@ -283,6 +283,7 @@ if __name__ == '__main__':
         logger(args, ts, 0, args.logmsg)
         logger(args, ts, 0, str(model))
         logger(args, ts, 0, "Parameter count: {}".format(Options.count_params(model)))
+    bestacc = -0.1
     for e in range(args.epochs):
         print('\nEpoch #{}:'.format(e+1))
         if e == 3:
@@ -294,9 +295,16 @@ if __name__ == '__main__':
         trainResult.append("Train sequences per second : " + str(nsamples/(time.time()-trainstart)))
 
         #validate the model
-        model, valResult = validate(model, valloader, valloader2, testloader, args)
+        model, valResult, testAcc = validate(model, valloader, valloader2, testloader, args)
         
         if args.log:
+            if testAcc > bestacc:
+                print("Current best found. Saving pth")
+                bestacc=testAcc
+                pthfile = str("log/") + str(args.exp) + "_" + \
+                    str(time.strftime("%Y-%m-%d %H:%M:%S", ts)) + "_"+ str(args.seq_type) + \
+                    "_" + str(args.net) + "_" + args.model_size +".pth", "w"
+                #torch.save(model.state_dict(), pthfile)
             #save into logfile
             trainResult.extend(valResult)
             logger(args, ts, e+1, trainResult)
