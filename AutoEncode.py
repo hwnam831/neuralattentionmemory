@@ -266,6 +266,7 @@ if __name__ == '__main__':
     else :
         print('Network {} not supported'.format(args.net))
         exit()
+    print(args)
     print(model)
     print("Parameter count: {}".format(Options.count_params(model)))
     col_fn = SCANDatasetAE.collate_batch if args.seq_type == 'scan' else None
@@ -280,9 +281,11 @@ if __name__ == '__main__':
     #torch.autograd.set_detect_anomaly(True)
     if args.log:
         ts = time.gmtime()
+        logger(args, ts, 0, str(args))
         logger(args, ts, 0, args.logmsg)
         logger(args, ts, 0, str(model))
         logger(args, ts, 0, "Parameter count: {}".format(Options.count_params(model)))
+    
     bestacc = -0.1
     for e in range(args.epochs):
         print('\nEpoch #{}:'.format(e+1))
