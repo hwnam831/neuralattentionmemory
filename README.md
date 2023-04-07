@@ -48,9 +48,9 @@ This repository follows the open-source policies of all of them.
 
 ## TODO
 - DNC-MDS (Done) - 55%?
-- Change to Longint
+- Change to Longint (Done)
 - Ablation (No L/R, R/W prob, No erase)
-- UT+Rel
+- UT+Rel (Done)
 - STM
 - Priority Sort
 - NFAR

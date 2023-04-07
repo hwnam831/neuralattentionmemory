@@ -32,7 +32,7 @@ def train(model, trainloader, criterion, optimizer, scheduler):
             bits += (loss*ismask).sum().item()
 
             tloss       = tloss + loss.mean().item()
-            nn.utils.clip_grad_norm_(model.parameters(), 0.1)
+            nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.step()
             
             pred        = output.argmax(axis=1)
@@ -155,13 +155,14 @@ def logger(args, timestamp, epoch, contents):
             fd.write('\n')
 
 if __name__ == '__main__':
+
     # The flag below controls whether to allow TF32 on matmul. This flag defaults to True.
     #torch.backends.cuda.matmul.allow_tf32 = False
 
     # The flag below controls whether to allow TF32 on cuDNN. This flag defaults to True.
     #torch.backends.cudnn.allow_tf32 = False
     args = Options.get_args()
-
+    #torch.autograd.set_detect_anomaly(args.debug)
     if args.seq_type == 'fib':
         
         dataset     = NSPDatasetAE(fib, args.digits, size=args.train_size)
@@ -245,19 +246,19 @@ if __name__ == '__main__':
     elif args.net == 'lstm':
         print('Executing Autoencoder model with LSTM including Attention')
         model = Models.LSTMAE(int(dmodel*math.sqrt(num_layers)), vocab_size = vocab_size).cuda()
-    elif args.net == 'nojump':
-        print('Executing NAM-TM without JMP')
-        model = NAM.NAMTMNJ(dmodel*2, vocab_size, nhead=nhead).cuda()
     elif args.net == 'dnc':
         print('Executing DNC model')
         #model = Models.DNCAE(dmodel + dmodel//2, nhead, vocab_size=vocab_size).cuda()
-        model = Models.DNCMDSAE(dmodel*2, nhead, vocab_size=vocab_size).cuda()
+        model = Models.DNCMDSAE(dmodel*2, nhead, vocab_size=vocab_size, mem_size=(dmodel*2)//nhead).cuda()
     elif args.net == 'lsam':
         print('Executing LSAM model')
         model = NAM.LSAMAE(dmodel*2, nhead, vocab_size=vocab_size).cuda()
     elif args.net == 'namtm':
         print('Executing NAM-TM model')
-        model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead).cuda()
+        model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead, debug=args.debug, mem_size=(dmodel*2)//nhead).cuda()
+    elif args.net in ['namtm2','nojump','onlyjump','norwprob','noerase']:
+        print('Executing NAM-TM model')
+        model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead, mem_size=(dmodel*2)//nhead, option=args.net, debug=args.debug).cuda()
     elif args.net == 'ut':
         print('Executing Universal Transformer model')
         #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
@@ -277,13 +278,15 @@ if __name__ == '__main__':
     criterion   = nn.CrossEntropyLoss(reduction='none')
     nsamples = len(dataset)
     #torch.autograd.set_detect_anomaly(True)
-    if args.log == 'true':
+    if args.log:
         ts = time.gmtime()
+        logger(args, ts, 0, args.logmsg)
         logger(args, ts, 0, str(model))
         logger(args, ts, 0, "Parameter count: {}".format(Options.count_params(model)))
     for e in range(args.epochs):
         print('\nEpoch #{}:'.format(e+1))
-        
+        if e == 3:
+            e = 3#this is the debug point
         trainstart = time.time()
         #train the model
         model, trainResult = train(model, trainloader, criterion, optimizer, scheduler)
@@ -293,7 +296,7 @@ if __name__ == '__main__':
         #validate the model
         model, valResult = validate(model, valloader, valloader2, testloader, args)
         
-        if args.log == 'true':
+        if args.log:
             #save into logfile
             trainResult.extend(valResult)
             logger(args, ts, e+1, trainResult)

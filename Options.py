@@ -17,7 +17,7 @@ def get_args():
     parser.add_argument(
             "--net",
             type=str,
-            choices=['tf', 'cnn', 'lstm', 'xlnet', 'nojump', 'dnc', 'lsam', 'namtm', 'ut'],
+            choices=['tf', 'cnn', 'lstm', 'xlnet', 'nojump', 'dnc', 'lsam', 'namtm', 'ut', 'norwprob', 'onlyjump', 'namtm2', 'noerase'],
             default='namtm',
             help='network choices')
     parser.add_argument(
@@ -64,10 +64,17 @@ def get_args():
             help='Default learning rate')
     parser.add_argument(
             "--log",
-            type=str,
-            choices= ['true', 'false'],
-            default='false',
+            action='store_true',
             help='Save result to file')
+    parser.add_argument(
+            "--debug",
+            action='store_true',
+            help='Debugger to detect Nan')
+    parser.add_argument(
+            "--logmsg",
+            type=str,
+            default='',
+            help='Msg about this experiment')
     parser.add_argument(
             "--exp",
             type=int,
