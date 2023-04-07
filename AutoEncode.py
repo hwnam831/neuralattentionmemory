@@ -32,7 +32,7 @@ def train(model, trainloader, criterion, optimizer, scheduler):
             bits += (loss*ismask).sum().item()
 
             tloss       = tloss + loss.mean().item()
-            nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+            nn.utils.clip_grad_norm_(model.parameters(), 0.1)
             optimizer.step()
             
             pred        = output.argmax(axis=1)

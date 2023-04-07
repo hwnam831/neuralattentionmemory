@@ -77,7 +77,7 @@ class NAMTuringNoJump(nn.Module):
         return outputs, tape.reshape(tapelen, batchsize, self.dim)
 
 class NAMTuring(nn.Module):
-    def __init__(self,dim, n_tapes=4, default_tapelen=32, mem_size=64, rwprob=True, noerase=False):
+    def __init__(self,dim, n_tapes=4, default_tapelen=32, mem_size=64, rwprob=True, noerase=False, debug=False):
         super().__init__()
         assert dim%n_tapes == 0
         self.head_dim=mem_size
@@ -86,15 +86,15 @@ class NAMTuring(nn.Module):
         self.default_tapelen = default_tapelen
         self.rwprob = rwprob
         self.noerase = noerase
-
+        self.debug=debug
 
         # (prev, next, no-op, jump)
         #direction layers for read/write heads
-        #action: (read_direction(4), write_direction(4), rwprob(2))
+        #action: (read_direction(4), write_direction(4), rweprob(3))
         #self.controller = nn.LSTM(self.dim, self.dim//2,bidirectional=True)
         self.controller = nn.LSTM(self.dim, self.dim,bidirectional=False)
 
-        self.actionlayer = nn.Linear(self.dim, 10*self.n_tapes)
+        self.actionlayer = nn.Linear(self.dim, 11*self.n_tapes)
         self.valuelayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
         self.keylayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
         self.outlayer = nn.Linear(self.head_dim*self.n_tapes,dim)
@@ -131,16 +131,16 @@ class NAMTuring(nn.Module):
         #(S,N,C) -> (S,N,nh,8)
         hidden, _ = self.controller(inputs)
 
-        actions = self.actionlayer(hidden).reshape(seqlen,batchsize,self.n_tapes,10)
+        actions = self.actionlayer(hidden).reshape(seqlen,batchsize,self.n_tapes,11)
         directions_r = F.softmax(actions[:,:,:,:4], dim=-1)
         directions_w = F.softmax(actions[:,:,:,4:8], dim=-1)
-        #(S,N,nh,2)
-        rwprobs = torch.sigmoid(actions[:,:,:,8:])
+        #(S,N,nh,3)
+        rweprobs = torch.sigmoid(actions[:,:,:,8:])
         queries = self.Wq(hidden).reshape(seqlen,batchsize,self.n_tapes,self.head_dim)
         queries = unitnorm(queries)
         read_outs = []
         for i in range(seqlen):
-            rw = rwprobs[i]
+            rwe = rweprobs[i]
             read_dir=directions_r[i]
             write_dir=directions_w[i]
             oldval = torch.einsum('lntc,lnt->ntc',tape, wpos)
@@ -149,9 +149,11 @@ class NAMTuring(nn.Module):
             if self.noerase:
                 newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i])
             else:
-                newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]-oldval)
+                #newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]-oldval)
+                newmem = torch.einsum('lnt,ntc->lntc',wpos,(values[i]*rwe[:,:,1:2]-oldval*rwe[:,:,2:3]))
             if self.rwprob:
-                tape = tape + newmem*rw[None,:,:,1:2]
+                #tape = tape + newmem*rw[None,:,:,1:2]
+                tape = tape + newmem
             else:
                 tape = tape + newmem
 
@@ -162,23 +164,25 @@ class NAMTuring(nn.Module):
             if self.noerase:
                 newkey = torch.einsum('lnt,ntc->lntc',wpos,keys[i])
             else:
-                newkey = torch.einsum('lnt,ntc->lntc',wpos,keys[i]-oldkey)
+                #newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]-oldkey))
+                newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]*rwe[:,:,1:2]-oldkey*rwe[:,:,2:3]))
 
             
             if self.rwprob:
-                tape_key = tape_key + newkey*rw[None,:,:,1:2]
+                #tape_key = tape_key + newkey*rw[None,:,:,1:2]
+                tape_key = tape_key + newkey
             else:
                 tape_key = tape_key + newkey
 
             jpos = torch.einsum('lntc,ntc->lnt',tape_key,queries[i])
             jpos = F.normalize(jpos,dim=0)
-            next_w = torch.roll(rpos, 1, dims=0)
-            prev_w = torch.roll(rpos, -1, dims=0)
+            next_w = torch.roll(wpos, 1, dims=0)
+            prev_w = torch.roll(wpos, -1, dims=0)
             wpos = prev_w*write_dir[None,:,:,0] + wpos*write_dir[None,:,:,1] +\
                     next_w*write_dir[None,:,:,2] + jpos*write_dir[None,:,:,3]
             #wpos = F.normalize(wpos,dim=0)
             if self.rwprob:
-                read_outs.append(read_out*rw[:,:,0:1])
+                read_outs.append(read_out*rwe[:,:,0:1])
             else:
                 read_outs.append(read_out)
             next_r = torch.roll(rpos, 1, dims=0)
@@ -192,7 +196,7 @@ class NAMTuring(nn.Module):
         return outputs, tape.reshape(tapelen, batchsize, self.head_dim*self.n_tapes)
 
 class NAMTuring2(nn.Module):
-    def __init__(self,dim, n_tapes=4, default_tapelen=32, mem_size=128, rwprob=True, noerase=False, debug=True):
+    def __init__(self,dim, n_tapes=4, default_tapelen=32, mem_size=64, rwprob=True, noerase=False, debug=False):
         super().__init__()
         assert dim%n_tapes == 0
         self.head_dim=mem_size
@@ -201,15 +205,15 @@ class NAMTuring2(nn.Module):
         self.default_tapelen = default_tapelen
         self.rwprob = rwprob
         self.noerase = noerase
-        self.debug = debug
-        self.gamma = 0.99
+        self.debug=debug
+
         # (prev, next, no-op, jump)
         #direction layers for read/write heads
-        #action: (read_direction(4), write_direction(4), rwprob(2))
+        #action: (read_direction(4), write_direction(4), rweprob(3))
         #self.controller = nn.LSTM(self.dim, self.dim//2,bidirectional=True)
         self.controller = nn.LSTM(self.dim, self.dim,bidirectional=False)
-        self.layernorm = nn.LayerNorm(self.dim)
-        self.actionlayer = nn.Linear(self.dim, 10*self.n_tapes)
+
+        self.actionlayer = nn.Linear(self.dim, 11*self.n_tapes)
         self.valuelayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
         self.keylayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
         self.outlayer = nn.Linear(self.head_dim*self.n_tapes,dim)
@@ -223,8 +227,7 @@ class NAMTuring2(nn.Module):
         batchsize = inputs.shape[1]
 
         values = self.valuelayer(inputs).reshape(seqlen, batchsize, self.n_tapes, self.head_dim)
-        #if self.noerase:
-        #values = F.hardtanh(values)
+
         
         keys = self.keylayer(inputs).reshape(seqlen, batchsize, self.n_tapes, self.head_dim)
         keys = unitnorm(keys)
@@ -246,22 +249,17 @@ class NAMTuring2(nn.Module):
        
         #(S,N,C) -> (S,N,nh,8)
         hidden, _ = self.controller(inputs)
-        #hidden = self.layernorm(hidden)
-        actions = self.actionlayer(hidden).reshape(seqlen,batchsize,self.n_tapes,10)
+
+        actions = self.actionlayer(hidden).reshape(seqlen,batchsize,self.n_tapes,11)
         directions_r = F.softmax(actions[:,:,:,:4], dim=-1)
         directions_w = F.softmax(actions[:,:,:,4:8], dim=-1)
-        #(S,N,nh,2)
-        rwprobs = torch.sigmoid(actions[:,:,:,8:])
+        #(S,N,nh,3)
+        rweprobs = torch.sigmoid(actions[:,:,:,8:])
         queries = self.Wq(hidden).reshape(seqlen,batchsize,self.n_tapes,self.head_dim)
         queries = unitnorm(queries)
         read_outs = []
-        if self.debug:
-            assert not queries.isnan().any()
-            assert not queries.isinf().any()
-            assert not keys.isnan().any()
-            assert not keys.isinf().any()
         for i in range(seqlen):
-            rw = rwprobs[i]
+            rwe = rweprobs[i]
             read_dir=directions_r[i]
             write_dir=directions_w[i]
             oldval = torch.einsum('lntc,lnt->ntc',tape, wpos)
@@ -270,9 +268,11 @@ class NAMTuring2(nn.Module):
             if self.noerase:
                 newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i])
             else:
-                newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]-oldval)
+                #newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]-oldval)
+                newmem = torch.einsum('lnt,ntc->lntc',wpos,(values[i]*rwe[:,:,1:2]-oldval*rwe[:,:,2:3]))
             if self.rwprob:
-                tape = tape + newmem*rw[None,:,:,1:2]
+                #tape = tape + newmem*rw[None,:,:,1:2]
+                tape = tape + newmem
             else:
                 tape = tape + newmem
 
@@ -280,62 +280,28 @@ class NAMTuring2(nn.Module):
             read_out = torch.einsum('lntc,lnt->ntc',tape,rpos)
 
             oldkey = torch.einsum('lntc,lnt->ntc',tape_key, wpos)
-            if oldkey.isinf().any():
-                print(tape_key.isnan().any())
-                print(tape_key.isinf().any())
-                print(wpos.isnan().any())
-                print(wpos.isinf().any())
-                assert not oldkey.isinf().any()
             if self.noerase:
                 newkey = torch.einsum('lnt,ntc->lntc',wpos,keys[i])
             else:
-                newkey = torch.einsum('lnt,ntc->lntc',wpos,keys[i]-oldkey)
+                #newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]-oldkey))
+                newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]*rwe[:,:,1:2]-oldkey*rwe[:,:,2:3]))
 
             
             if self.rwprob:
-                tape_key = tape_key + newkey*rw[None,:,:,1:2]
+                #tape_key = tape_key + newkey*rw[None,:,:,1:2]
+                tape_key = tape_key + newkey
             else:
                 tape_key = tape_key + newkey
-            if self.debug:
-                assert not wpos.isnan().any()
-                assert not wpos.isinf().any()
-                assert not oldval.isnan().any()
-                
-                assert not newmem.isnan().any()
-                assert not newkey.isnan().any()
-                if newkey.isinf().any():
-                    print(wpos.isnan().any())
-                    print(wpos.isinf().any())
-                    print(oldkey.isnan().any())
-                    print(oldkey.isinf().any())
-                    assert not newkey.isinf().any()
-                assert not read_out.isnan().any()
-                assert not tape.isnan().any()
-                assert not tape_key.isnan().any()
-                assert not tape_key.isinf().any()
+
             jpos = torch.einsum('lntc,ntc->lnt',tape_key,queries[i])
-            #jpos = torch.softmax(jpos/math.sqrt(tapelen),dim=0)
-            jpos = F.hardtanh(jpos)
-            #jpos = F.normalize(jpos,dim=0)
-            next_w = torch.roll(rpos, 1, dims=0)
-            prev_w = torch.roll(rpos, -1, dims=0)
-            if self.debug:
-                assert not write_dir.isnan().any()
-                assert not prev_w.isnan().any()
-                assert not next_w.isnan().any()
-                if jpos.isnan().any():
-                    print(tape_key.isnan().any())
-                    print(tape_key.isinf().any())
-                    print(queries[i].isnan().any())
-                    print(queries[i].isinf().any())
-                    assert not jpos.isnan().any()
-                assert not jpos.isinf().any()
+            jpos = F.normalize(jpos,dim=0)
+            next_w = torch.roll(wpos, 1, dims=0)
+            prev_w = torch.roll(wpos, -1, dims=0)
             wpos = prev_w*write_dir[None,:,:,0] + wpos*write_dir[None,:,:,1] +\
                     next_w*write_dir[None,:,:,2] + jpos*write_dir[None,:,:,3]
             #wpos = F.normalize(wpos,dim=0)
-            #wpos = torch.clamp(wpos,-1,1)
             if self.rwprob:
-                read_outs.append(read_out*rw[:,:,0:1])
+                read_outs.append(read_out*rwe[:,:,0:1])
             else:
                 read_outs.append(read_out)
             next_r = torch.roll(rpos, 1, dims=0)
@@ -343,7 +309,6 @@ class NAMTuring2(nn.Module):
             rpos = prev_r*read_dir[None,:,:,0] + rpos*read_dir[None,:,:,1] +\
                     next_r*read_dir[None,:,:,2] + jpos*read_dir[None,:,:,3]
             #rpos = F.normalize(rpos,dim=0)
-            #rpos = torch.clamp(rpos,-1,1)
             
         outputs = torch.stack(read_outs).reshape(seqlen,batchsize,-1)
         outputs = self.outlayer(outputs)
@@ -431,7 +396,7 @@ class NAMTuringRecurrent(nn.Module):
                 tape_key = tape_key + newkey
             
             jpos = torch.einsum('lntc,ntc->lnt',tape_key,query)
-            
+            jpos = F.normalize(jpos,dim=0)
             next_w = torch.roll(rpos, 1, dims=0)
             prev_w = torch.roll(rpos, -1, dims=0)
             wpos = prev_w*write_dir[None,:,:,0] + wpos*write_dir[None,:,:,1] +\
@@ -444,8 +409,8 @@ class NAMTuringRecurrent(nn.Module):
             rpos = prev_r*read_dir[None,:,:,0] + rpos*read_dir[None,:,:,1] +\
                     next_r*read_dir[None,:,:,2] + jpos*read_dir[None,:,:,3]
             if self.normalize_head:
-                wpos = F.normalize(wpos)
-                rpos = F.normalize(rpos)
+                wpos = F.normalize(wpos,dim=0)
+                rpos = F.normalize(rpos,dim=0)
             
         outputs = torch.stack(read_outs).reshape(seqlen,batchsize,-1)
         outputs = self.outlayer(outputs)
@@ -520,7 +485,7 @@ class NAMTuringOnlyJump(nn.Module):
             tape_key = tape_key + newkey*rw[None,:,:,1:2]
             
             jpos = torch.einsum('lntc,ntc->lnt',tape_key,queries[i])
-            
+            jpos = F.normalize(jpos,dim=0)
 
             wpos = wpos*write_dir[None,:,:,0] + jpos*write_dir[None,:,:,1]
             
@@ -547,9 +512,9 @@ class NAMTMAE(nn.Module):
         elif option=='namtm2':
             self.tm = NAMTuring2(dim, n_tapes=nhead, default_tapelen=defalt_tapelen, debug=debug, mem_size=mem_size)
         elif option=='norwprob':
-            self.tm = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen, mem_size=mem_size, rwprob=False, debug=debug)
+            self.tm = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen, mem_size=mem_size, rwprob=False)
         elif option=='noerase':
-            self.tm = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen, mem_size=mem_size, noerase=True, debug=debug)
+            self.tm = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen, mem_size=mem_size, noerase=True)
         else:
             self.tm = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen, mem_size=mem_size)
         #self.tm2 = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen)
