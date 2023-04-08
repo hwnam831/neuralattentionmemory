@@ -50,6 +50,7 @@ This repository follows the open-source policies of all of them.
 - DNC-MDS (Done) - 55%?
 - Change to Longint (Done)
 - Ablation (No L/R, R/W prob, No erase)
+- Bits through sequence length
 - UT+Rel (Done)
 - STM
 - Priority Sort

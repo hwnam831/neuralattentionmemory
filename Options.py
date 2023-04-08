@@ -33,12 +33,12 @@ def get_args():
     parser.add_argument(
             "--validation_size",
             type=int,
-            default='1024',
+            default='2560',
             help='number of validation examples')
     parser.add_argument(
             "--batch_size",
             type=int,
-            default='128',
+            default='256',
             help='batch size')
     parser.add_argument(
             "--model_size",
