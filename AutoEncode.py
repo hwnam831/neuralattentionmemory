@@ -274,7 +274,7 @@ if __name__ == '__main__':
     valloader   = DataLoader(valset, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
     valloader2   = DataLoader(valset2, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
     testloader   = DataLoader(testset, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
-    optimizer   = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.lr/2)
+    optimizer   = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.lr/10)
     scheduler   = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.98)
     criterion   = nn.CrossEntropyLoss(reduction='none')
     nsamples = len(dataset)

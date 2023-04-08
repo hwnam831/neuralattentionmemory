@@ -23,12 +23,12 @@ def get_args():
     parser.add_argument(
             "--epochs",
             type=int,
-            default='100',
+            default='50',
             help='number of epochs')
     parser.add_argument(
             "--train_size",
             type=int,
-            default='25600',
+            default='51200',
             help='number of training examples per epoch')
     parser.add_argument(
             "--validation_size",
