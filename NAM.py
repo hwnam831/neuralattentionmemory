@@ -149,15 +149,14 @@ class NAMTuring(nn.Module):
             
 
             if self.noerase:
-                newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i])
-            else:
+                newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]*rwe[:,:,1:2])
+            elif self.rwprob:
                 #newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]-oldval)
                 newmem = torch.einsum('lnt,ntc->lntc',wpos,(values[i]*rwe[:,:,1:2]-oldval*rwe[:,:,2:3]))
-            if self.rwprob:
-                #tape = tape + newmem*rw[None,:,:,1:2]
-                tape = tape + newmem
             else:
-                tape = tape + newmem
+                newmem = torch.einsum('lnt,ntc->lntc',wpos,(values[i]-oldval))
+            tape = tape + newmem
+
 
 
             read_out = torch.einsum('lntc,lnt->ntc',tape,rpos)
@@ -165,9 +164,11 @@ class NAMTuring(nn.Module):
             oldkey = torch.einsum('lntc,lnt->ntc',tape_key, wpos)
             if self.noerase:
                 newkey = torch.einsum('lnt,ntc->lntc',wpos,keys[i])
-            else:
+            elif self.rwprob:
                 #newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]-oldkey))
                 newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]*rwe[:,:,1:2]-oldkey*rwe[:,:,2:3]))
+            else:
+                newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]-oldkey))
 
             
             if self.rwprob:
