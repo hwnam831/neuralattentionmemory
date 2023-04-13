@@ -213,8 +213,8 @@ class NAMTuring2(nn.Module):
         # (prev, next, no-op, jump)
         #direction layers for read/write heads
         #action: (read_direction(4), write_direction(4), rweprob(3))
-        #self.controller = nn.LSTM(self.dim, self.dim//2,bidirectional=True)
-        self.controller = nn.LSTM(self.dim, self.dim,bidirectional=False)
+        self.controller = nn.LSTM(self.dim, self.dim//2,bidirectional=True)
+        #self.controller = nn.LSTM(self.dim, self.dim,bidirectional=False)
 
         self.actionlayer = nn.Linear(self.dim, 11*self.n_tapes)
         self.valuelayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
@@ -269,15 +269,14 @@ class NAMTuring2(nn.Module):
             
 
             if self.noerase:
-                newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i])
-            else:
+                newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]*rwe[:,:,1:2])
+            elif self.rwprob:
                 #newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]-oldval)
                 newmem = torch.einsum('lnt,ntc->lntc',wpos,(values[i]*rwe[:,:,1:2]-oldval*rwe[:,:,2:3]))
-            if self.rwprob:
-                #tape = tape + newmem*rw[None,:,:,1:2]
-                tape = tape + newmem
             else:
-                tape = tape + newmem
+                newmem = torch.einsum('lnt,ntc->lntc',wpos,(values[i]-oldval))
+            tape = tape + newmem
+
 
 
             read_out = torch.einsum('lntc,lnt->ntc',tape,rpos)
@@ -285,9 +284,11 @@ class NAMTuring2(nn.Module):
             oldkey = torch.einsum('lntc,lnt->ntc',tape_key, wpos)
             if self.noerase:
                 newkey = torch.einsum('lnt,ntc->lntc',wpos,keys[i])
-            else:
+            elif self.rwprob:
                 #newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]-oldkey))
                 newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]*rwe[:,:,1:2]-oldkey*rwe[:,:,2:3]))
+            else:
+                newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]-oldkey))
 
             
             if self.rwprob:

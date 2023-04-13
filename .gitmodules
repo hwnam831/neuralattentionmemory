@@ -7,3 +7,6 @@
 [submodule "transformer_generalization"]
 	path = transformer_generalization
 	url = https://github.com/hwnam831/transformer_generalization
+[submodule "SAM"]
+	path = SAM
+	url = https://github.com/thaihungle/SAM

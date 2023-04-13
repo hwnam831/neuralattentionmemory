@@ -5,6 +5,7 @@ import numpy as np
 import Options
 import Models
 from NSPDataset import ReductionDatasetAE, NSPDatasetAE, NSPDatasetV2, StringDataset, fib, arith
+import STM
 from SCANDataset import SCANDatasetAE
 import NAM
 from torch.utils.data import DataLoader
@@ -263,6 +264,10 @@ if __name__ == '__main__':
         print('Executing Universal Transformer model')
         #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
         model = Models.UTRelAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
+    elif args.net == 'stm':
+        print('Executing STM model')
+        #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
+        model = STM.STMAE(dmodel*2, vocab_size, nhead=nhead, mem_size=(dmodel*2)//nhead).cuda()
     else :
         print('Network {} not supported'.format(args.net))
         exit()
