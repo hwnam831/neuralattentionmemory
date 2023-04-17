@@ -6,7 +6,7 @@ import Options
 import Models
 from NSPDataset import ReductionDatasetAE, NSPDatasetAE, NSPDatasetV2, StringDataset, fib, arith
 import STM
-from SCANDataset import SCANDatasetAE
+from SCANDataset import SCANResplitAE
 import NAM
 from torch.utils.data import DataLoader
 import time
@@ -187,10 +187,10 @@ if __name__ == '__main__':
         valset2      = StringDataset(args.seq_type, args.digits+6, args.digits+1, size=args.validation_size)
         testset      = StringDataset(args.seq_type, args.digits+12, args.digits+7, size=args.validation_size)
     elif args.seq_type == 'scan':
-        dataset     = SCANDatasetAE('SCAN/length_split/tasks_train_length.txt') 
-        valset      = SCANDatasetAE('SCAN/simple_split/tasks_test_simple.txt')
-        valset2      = SCANDatasetAE('SCAN/length_split/tasks_test_length.txt') 
-        testset      = SCANDatasetAE('SCAN/length_split/tasks_test_length.txt') 
+        dataset     = SCANResplitAE('train', (0,args.digits))
+        valset      = SCANResplitAE('test', (0,args.digits))
+        valset2      = SCANResplitAE('all', (args.digits+1,9999))
+        testset      = valset2
     elif args.seq_type == 'reduce':
         dataset     = ReductionDatasetAE(args.digits, size=args.train_size)
         valset      = ReductionDatasetAE(args.digits,args.digits//2, size=args.validation_size)
@@ -274,7 +274,7 @@ if __name__ == '__main__':
     print(args)
     print(model)
     print("Parameter count: {}".format(Options.count_params(model)))
-    col_fn = SCANDatasetAE.collate_batch if args.seq_type == 'scan' else None
+    col_fn = SCANResplitAE.collate_batch if args.seq_type == 'scan' else None
     trainloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, collate_fn=col_fn)
     valloader   = DataLoader(valset, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
     valloader2   = DataLoader(valset2, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)

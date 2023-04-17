@@ -52,10 +52,9 @@ This repository follows the open-source policies of all of them.
 - Ablation (No L/R, R/W prob, No erase) (Done for fib, for reduce?)
 - Bits through sequence length
 - UT+Rel (Done)
-- STM
-- Priority Sort
-- NFAR
-- Associative Recall
-- RAR
+- SCAN Resplit/COGS/PCFG - AE setup? verify with UT
+- RAR/NFAR/PSORT
 - babi 1k?
 - TSP?
+- NAMTuringRecurrent? (values, queries , keys by hidden)
+- nokeytape?

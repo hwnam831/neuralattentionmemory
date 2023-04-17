@@ -540,174 +540,194 @@ class NAMTMAE(nn.Module):
         return self.fc(outputs).permute(1,2,0)
 
 
-
-#TODO: Gated AM? Feed AM to next layer?
-class LSAMCell(nn.Module):
-    def __init__(self, input_dim, d_model, nhead, sigma=unitnorm):
+#simple version, only input tape
+class NAMTuringDecoder(nn.Module):
+    def __init__(self,dim, n_tapes=4, default_tapelen=32, mem_size=64, debug=False):
         super().__init__()
-        assert d_model % nhead == 0
-        self.nhead = nhead
-        self.input_dim = input_dim
-        self.Wqkv = nn.Linear(d_model+input_dim, d_model*3) # x:h -> q:k:v
-        self.Ww = nn.Linear(d_model+input_dim, nhead)
-        self.Wr = nn.Linear(d_model+input_dim, nhead)
-        self.sigma = sigma
-        self.d_head = d_model//nhead
-        self.d_model = d_model
+        assert dim%n_tapes == 0
+        self.head_dim=mem_size
+        self.dim = dim
+        self.n_tapes = n_tapes
+        self.default_tapelen = default_tapelen
+        self.debug=debug
 
-    def forward(self, x, h, AM):
-        #assuming (B,C) layout
-        B = x.size(0)
+        # (prev, next, no-op, jump)
+        #direction layers for read/write heads
+
+        #Input: read, x -> output: hidden
+        #self.controller = nn.LSTMCell(self.dim + self.head_dim*self.n_tapes, self.dim)
+        self.controller = nn.LSTMCell(self.dim, self.dim)
+        self.Wk = nn.Linear(self.head_dim*self.n_tapes, self.head_dim*self.n_tapes)
+
+        self.Wqkva = nn.Linear(self.dim, self.head_dim*self.n_tapes*3+11*self.n_tapes)
+
+
+    def forward_step(self, next_tgt, tape, rpos, wpos, cntl_hidden):
+        bsize = next_tgt.shape[0]
         
-        xh = torch.cat((x,h), dim=-1)
-        qkv = self.Wqkv(xh).reshape(B,3,self.nhead,-1)
-        q = self.sigma(qkv[:,0])
-        k = self.sigma(qkv[:,1])
-        v = qkv[:,2]
+        #h,c = self.controller(torch.concat((next_tgt,rval),dim=-1), cntl_hidden)
+        h,c = self.controller(next_tgt, cntl_hidden)
+        qkva = self.Wqkva(h)
+        query = qkva[:,:self.head_dim*self.n_tapes].reshape(bsize, self.n_tapes, -1)
+        query = F.normalize(query,dim=-1)
+        key = qkva[:,2*self.head_dim*self.n_tapes:self.head_dim*self.n_tapes].reshape(bsize, self.n_tapes, -1)
+        key = F.normalize(key,dim=-1)
+        value = qkva[:,2*self.head_dim*self.n_tapes:3*self.head_dim*self.n_tapes].reshape(bsize, self.n_tapes, -1)
+        action = qkva[:,3*self.head_dim*self.n_tapes:].reshape(bsize, self.n_tapes, -1)
+        read_dir = torch.softmax(action[:,:,:4], dim=-1)
+        write_dir = torch.softmax(action[:,:,4:8], dim=-1)
+        rwe = torch.sigmoid(action[:,:,8:])
+        oldval = torch.einsum('lntc,lnt->ntc',tape, wpos)
+        newmem = torch.einsum('lnt,ntc->lntc',wpos,(value*rwe[:,:,1:2]-oldval*rwe[:,:,2:3]))
+        ntape = tape + newmem
 
-        #RW probability (gate) per head : [B,n]
-        w = torch.sigmoid(self.Ww(xh))
+
+
+        rval = torch.einsum('lntc,lnt->ntc',tape,rpos*rwe[:,:,0]).reshape(bsize,-1)
+        jpos = torch.einsum('lntc,ntc->lnt',tape,query)
+        jpos = F.normalize(jpos, dim=0)
+
+        next_w = torch.roll(wpos, 1, dims=0)
+        prev_w = torch.roll(wpos, -1, dims=0)
+        nwpos = prev_w*write_dir[None,:,:,0] + wpos*write_dir[None,:,:,1] +\
+                next_w*write_dir[None,:,:,2] + jpos*write_dir[None,:,:,3]
+        next_r = torch.roll(rpos, 1, dims=0)
+        prev_r = torch.roll(rpos, -1, dims=0)
+        nrpos = prev_r*read_dir[None,:,:,0] + rpos*read_dir[None,:,:,1] +\
+                next_r*read_dir[None,:,:,2] + jpos*read_dir[None,:,:,3]
+
+        return rval, ntape, nrpos, nwpos, (h,c)
         
-        #Memory to override. kvT - kv_rT = k(v-v_r)T
-        v_r = torch.einsum('bnvq,bnq->bnv', AM,k)
-        vp = w[:,:,None]*(v-v_r)
-        A_w = torch.einsum('bnq,bnv->bnvq', k,vp)
+    def init_states(self, src):
+        #seqlen = tgt.shape[0]
+        batchsize = src.shape[1]
 
-        #update AM using write gates
-        AM = AM + A_w
+        tapelen_in = src.size(0)
+        tape = src.reshape([tapelen_in, batchsize, self.n_tapes, self.head_dim])
+        rpos = torch.zeros([tapelen_in, batchsize, self.n_tapes],
+            dtype=src.dtype, device=src.device)
+        rpos[0,:,:] = 1.0
+
+        wpos = torch.zeros([tapelen_in, batchsize, self.n_tapes],
+            dtype=src.dtype, device=src.device)
+        wpos[0,:,:] = 1.0
         
-        #gated read
-        r = torch.sigmoid(self.Wr(xh))
-        h = torch.einsum('bnvq,bnq->bnv', AM,q)*r[:,:,None]
-        h = h.reshape(B,-1)
-
-        return h, AM
-
-class LSAMDecoder(nn.Module):
-    def __init__(self, input_dim, d_model, nhead, sigma=unitnorm, activation = nn.ReLU(), drop=0.1):
-        super().__init__()
-        assert d_model % nhead == 0
-        self.nhead = nhead
-        self.encoder = LSAMCell(input_dim=input_dim, d_model=d_model, nhead=nhead)
         
-        self.sigma = sigma
-        self.d_head = d_model//nhead
-        self.d_model = d_model
-        self.Wo = nn.Sequential(nn.Linear(d_model, d_model),
-                                nn.Dropout(drop), activation)
-        self.norm = nn.LayerNorm(d_model)
-
-    def forward(self, x, AM):
-        #assuming (S,B,C) layout
-        B = x.size(1)
-        h = torch.zeros(B, self.d_model, dtype=x.dtype, device=x.device)
-        out = []
-        for x_i in x:
-            h, AM = self.encoder(x_i, h, AM)
-            out.append(h)
-        out = torch.stack(out)
-        out = self.Wo(out)
-        return self.norm(out), (h,AM)
-
-class BLSAM(nn.Module):
-    def __init__(self, input_dim, d_model, nhead, sigma=unitnorm, activation = nn.ReLU(), drop=0.1):
+        cntl_hidden = (torch.zeros([batchsize, self.dim],dtype=src.dtype, device=src.device),
+                       torch.zeros([batchsize, self.dim],dtype=src.dtype, device=src.device))
+        return tape, rpos, wpos, cntl_hidden
+    #Seq-first in (S,N,C), seq-first out (S,N,C)
+    #Stack: initial stack state (zeros or null embeddings)
+    def forward(self, tgt, src):
+        seqlen = tgt.shape[0]
+        batchsize = tgt.shape[1]
+        
+        tape, rpos, wpos, cntl_hidden = \
+            self.init_states(src)
+        read_outs=[]
+        for i in range(seqlen):
+            rval, tape, rpos, wpos, cntl_hidden = \
+                self.forward_step(tgt[i], tape, rpos, wpos, cntl_hidden)
+            read_outs.append(rval)
+        return torch.stack(read_outs,dim=0)
+class NAMTuringDecoder2(nn.Module):
+    def __init__(self,dim, n_tapes=4, default_tapelen=32, mem_size=64, debug=False):
         super().__init__()
-        assert d_model % nhead == 0
-        assert d_model % 2 == 0
-        assert nhead % 2 == 0
-        self.nhead = nhead
-        self.enc_fw = LSAMCell(input_dim=input_dim, d_model=d_model//2, nhead=nhead//2)
-        self.enc_bw = LSAMCell(input_dim=input_dim, d_model=d_model//2, nhead=nhead//2)
-        self.input_dim = input_dim
-        self.sigma = sigma
-        self.d_head = d_model//nhead
-        self.d_model = d_model
-        self.Wo = nn.Sequential(nn.Linear(d_model, d_model),
-                                nn.Dropout(drop), activation)
-        self.norm = nn.LayerNorm(d_model)
-    def forward(self, x, hA=None):
-        #assuming (S,B,C) layout
-        B = x.size(1)
-        if hA is None:
-            h_f = torch.zeros([B, self.d_model//2],
-                        dtype=x.dtype, device=x.device)
-            h_b = torch.zeros([B, self.d_model//2],
-                        dtype=x.dtype, device=x.device)
-            #B,N,D/N,D/N
-            AM_f = torch.zeros([B, self.nhead//2, self.d_head, self.d_head],
-                        dtype=x.dtype, device=x.device) 
-            AM_b = torch.zeros([B, self.nhead//2, self.d_head, self.d_head],
-                        dtype=x.dtype, device=x.device) 
-        else:
-            h,AM = hA
-            h_f = h[:,:self.d_model//2]
-            h_b = h[:,self.d_model//2:]
-            AM_f = AM[:,:self.nhead//2]
-            AM_f = AM[:,self.nhead//2:]
+        assert dim%n_tapes == 0
+        self.head_dim=mem_size
+        self.dim = dim
+        self.n_tapes = n_tapes
+        self.default_tapelen = default_tapelen
+        self.debug=debug
 
-        out_f = []
-        out_b = []
-        for i in range(len(x)):
-            x_f = x[i]
-            h_f, AM_f = self.enc_fw(x_f, h_f, AM_f)
-            out_f.append(h_f)
-            x_b = x[-i-1]
-            h_b, AM_b = self.enc_bw(x_b, h_b, AM_b)
-            out_b.append(h_b)
-        out_b.reverse()
-        out = torch.concat((torch.stack(out_f), torch.stack(out_b)),dim=-1)
-        out = self.Wo(out)
+        # (prev, next, no-op, jump)
+        #direction layers for read/write heads
 
-        #Concat at channel
-        h = torch.concat((h_f, h_b), dim=-1)
-        #Concat at head
-        AM = torch.concat((AM_f, AM_b), dim=1)
-        return out, (h,AM)
+        #Input: read, x -> output: hidden
+        self.controller = nn.LSTMCell(self.dim + self.head_dim*self.n_tapes, self.dim,bidirectional=False)
 
-class LSAMEncoderLayer(nn.Module):
-    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1):
-        super().__init__()
-        self.attn = BLSAM(input_dim=d_model, d_model=d_model, nhead=nhead)
-        self.linear1 = nn.Linear(d_model, dim_feedforward)
-        self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(dim_feedforward, d_model)
+        self.Wk_in = nn.Linear(self.head_dim*self.n_tapes, self.head_dim*self.n_tapes)
 
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
-    def forward(self, src):
-        src2, kq = self.attn(src)
-        src = src + self.dropout1(src2)
-        src2 = self.linear2(self.dropout(F.relu(self.linear1(src))))
-        src = src + self.dropout2(src2)
-        src = self.norm2(src)
-        return src, kq
-#TODO: LSAM decoder
-class LSAMAE(nn.Module):
-    def __init__(self, d_model=256, nhead=4, num_layers=2, vocab_size=16):
-        super().__init__()
-        self.d_model=d_model
-        self.vocab_size = vocab_size
-        assert d_model%2 == 0
-        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.Wqkva = nn.Linear(self.dim, self.head_dim*self.n_tapes*4+11*self.n_tapes)
 
-        self.encoder = LSAMEncoderLayer(d_model=d_model, nhead=nhead)
 
-        self.decoder = LSAMDecoder(input_dim=d_model, d_model=d_model, nhead=nhead)
-        self.fc = nn.Linear(d_model, vocab_size)
+    def forward_step(self, next_tgt, tape_in, keytape_in, rpos, tape_out, keytape_out, wpos, cntl_hidden):
+        bsize = next_tgt.shape[0]
+        rval = torch.einsum('lntc,lnt->ntc',tape_in,rpos).resize(bsize,-1)
+        hidden, (h,c) = self.controller(torch.concat((next_tgt,rval),dim=-1), cntl_hidden)
+        qkva = self.Waqkv(hidden)
+        q_in = qkva[:,:self.head_dim*self.n_tapes].reshape(bsize, self.n_tapes, -1)
+        q_in = F.normalize(q_in,dim=-1)
+        q_out = qkva[:,self.head_dim*self.n_tapes:2*self.head_dim*self.n_tapes].reshape(bsize, self.n_tapes, -1)
+        q_out = F.normalize(q_out,dim=-1)
+        key = qkva[:,2*self.head_dim*self.n_tapes:3*self.head_dim*self.n_tapes].reshape(bsize, self.n_tapes, -1)
+        key = F.normalize(key,dim=-1)
+        value = qkva[:,3*self.head_dim*self.n_tapes:4*self.head_dim*self.n_tapes].reshape(bsize, self.n_tapes, -1)
+        action = qkva[:,4*self.head_dim*self.n_tapes:].reshape(bsize, self.n_tapes, -1)
+        read_dir = torch.softmax(action[:,:,:4], dim=-1)
+        write_dir = torch.softmax(action[:,:,4:8], dim=-1)
+        rwe = torch.softmax(action[:,:,4:8], dim=-1)
+        oldval = torch.einsum('lntc,lnt->ntc',tape_out, wpos)
+        newmem = torch.einsum('lnt,ntc->lntc',wpos,(value*rwe[:,:,1:2]-oldval*rwe[:,:,2:3]))
+        ntape_out = tape_out + newmem
 
-    #Batch-first in (N,S), batch-first out (N,C,S)
-    def forward(self, input, encoder_mode=False):
-        input2 = input.permute(1,0)
+        oldkey = torch.einsum('lntc,lnt->ntc',keytape_out, wpos)
+        newkey = torch.einsum('lnt,ntc->lntc',wpos,key*rwe[:,:,1:2]-oldkey*rwe[:,:,2:3])
+        nkeytape_out = keytape_out + newkey
 
-        src = self.embedding(input2)
+        jpos_in = torch.einsum('lntc,ntc->lnt',keytape_in,q_in)
+        jpos_in = F.normalize(jpos_in,dim=0)
+        jpos_out = torch.einsum('lntc,ntc->lnt',keytape_out,q_out)
+        jpos_out = F.normalize(jpos_out,dim=0)
+        next_w = torch.roll(wpos, 1, dims=0)
+        prev_w = torch.roll(wpos, -1, dims=0)
+        nwpos = prev_w*write_dir[None,:,:,0] + wpos*write_dir[None,:,:,1] +\
+                next_w*write_dir[None,:,:,2] + jpos_out*write_dir[None,:,:,3]
+        next_r = torch.roll(rpos, 1, dims=0)
+        prev_r = torch.roll(rpos, -1, dims=0)
+        nrpos = prev_r*read_dir[None,:,:,0] + rpos*read_dir[None,:,:,1] +\
+                next_r*read_dir[None,:,:,2] + jpos_in*read_dir[None,:,:,3]
 
-        out, hA = self.encoder(src)
-        out, hA = self.decoder(out, hA[1])
+        return nrpos, ntape_out, nkeytape_out, nwpos, (h,c)
+        
+    def init_tapes(self, src, tapelen=-1):
+        #seqlen = tgt.shape[0]
+        batchsize = src.shape[1]
 
-        out = self.fc(out).permute(1,2,0)
-        if encoder_mode:
-            return out, hA[1]
-        else:
-            return out
+        tapelen_in = src.size(0)
+        tape_in = src.reshape([tapelen_in, batchsize, self.n_tapes, self.head_dim])
+        rpos = torch.zeros([tapelen_in, batchsize, self.n_tapes],
+            dtype=src.dtype, device=src.device)
+        rpos[0,:,:] = 1.0
+
+        tapelen_out = tapelen if tapelen > 0 else self.default_tapelen
+        wpos = torch.zeros([tapelen_out, batchsize, self.n_tapes],
+            dtype=src.dtype, device=src.device)
+        wpos[0,:,:] = 1.0
+        
+        keytape_in = self.Wk_in(src).reshape([tapelen_in, batchsize, self.n_tapes, self.head_dim])
+        #(L,N,T,C)
+        tape_out = torch.zeros([tapelen_out, batchsize, self.n_tapes,self.head_dim],
+                            dtype=src.dtype, device=src.device)
+        keytape_out = torch.zeros_like(tape_out)
+        
+        
+        cntl_hidden = (torch.zeros([batchsize, self.dim],dtype=src.dtype, device=src.device),
+                       torch.zeros([batchsize, self.dim],dtype=src.dtype, device=src.device))
+        return tape_in, rpos, keytape_in, tape_out, wpos, keytape_out, cntl_hidden
+    #Seq-first in (S,N,C), seq-first out (S,N,C)
+    #Stack: initial stack state (zeros or null embeddings)
+    def forward(self, tgt, src, tapelen=-1):
+        seqlen = tgt.shape[0]
+        batchsize = tgt.shape[1]
+
+        tapelen_out = tapelen if tapelen > 0 else self.default_tapelen
+        
+        tape_in, rpos, keytape_in, tape_out, wpos, keytape_out, cntl_hidden = \
+            self.init_tapes(src, tapelen)
+        for i in range(seqlen):
+            rpos, tape_out, keytape_out, wpos, cntl_hidden = \
+                self.forward_step(tgt[i],tape_in,keytape_in,rpos,tape_out,keytape_out,wpos,cntl_hidden)
+        return tape_out.reshape(tapelen_out, batchsize, self.head_dim*self.n_tapes)
+
+
