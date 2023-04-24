@@ -4,15 +4,107 @@ import torch.nn.functional as F
 import numpy as np
 import Options
 import Models
-from NSPDataset import ReductionDatasetAE, NSPDatasetAE, NSPDatasetV2, StringDataset, fib, arith
-from ListOpsDataset import ListopsDataset
+from ListOpsDataset import GuidedListops
 import STM
-from SCANDataset import SCANResplitAE
 import NAM
 from torch.utils.data import DataLoader
 import time
 import math
-from DYCK import DYCKDataset
+from transformer_generalization.layers.transformer.universal_transformer import UniversalTransformerEncoder
+from transformer_generalization.layers.transformer.universal_relative_transformer import RelativeTransformerEncoderLayer
+
+class LSTMListops(nn.Module):
+    def __init__(self, model_size, vocab_size=16):
+        super().__init__()
+        assert model_size %2 == 0
+        self.model_size = model_size
+        self.embed = nn.Embedding(vocab_size, self.model_size)
+        self.encoder = nn.LSTM(self.model_size, self.model_size//2, 1, bidirectional=True)
+        self.dropout = nn.Dropout(0.1)
+        self.attn = Models.AttentionLayer(model_size, model_size, model_size)
+        self.decoder = nn.LSTM(self.model_size, self.model_size//2, 1, bidirectional=True)
+        self.fc = nn.Linear(model_size, vocab_size*4)
+
+    def forward(self, input):
+        outputs = self.dropout(self.embed(input.permute(1,0)))
+        outputs, state = self.encoder(outputs)
+        outputs, _ = self.attn(outputs, outputs)
+        outputs, state = self.decoder(self.dropout(outputs))
+        return self.fc(self.dropout(outputs)).reshape(outputs.shape[0],outputs.shape[1],4,-1).permute(1,3,0,2)
+
+class NAMTMListops(nn.Module):
+    def __init__(self, dim, vocab_size, nhead=4, defalt_tapelen=32, option='default', debug=False, mem_size=64):
+        super().__init__()
+        self.dim=dim
+        self.embedding = nn.Sequential(nn.Embedding(vocab_size, dim),
+                                        nn.Linear(dim, dim),
+                                     nn.Dropout(0.2))
+
+        self.encnorm = nn.LayerNorm(self.dim)
+        self.tm = NAM.NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen, mem_size=mem_size)
+        self.fc = nn.Sequential(nn.LayerNorm(dim),
+            nn.Dropout(0.1), nn.ReLU(),
+            nn.Linear(dim, 4*vocab_size))
+        self.vocab_size = vocab_size
+
+    #Batch-first in (N,S), batch-first out (N,C,S)
+    def forward(self, input):
+        input2 = input.permute(1,0)
+
+        src = self.embedding(input2)
+
+        src = self.encnorm(src)
+        outputs, tape = self.tm(src)
+        #outputs, tape = self.tm2(src, tape_in=tape)
+
+        #S,N,4,C to N,C,S,4
+        return self.fc(outputs).reshape(outputs.shape[0],outputs.shape[1],4,-1).permute(1,3,0,2)
+
+class NAMTMListops2(nn.Module):
+    def __init__(self, dim, vocab_size, nhead=4, defalt_tapelen=32, option='default', debug=False, mem_size=64):
+        super().__init__()
+        self.dim=dim
+        self.embedding = nn.Sequential(nn.Embedding(vocab_size, dim),
+                                        nn.Linear(dim, dim),
+                                     nn.Dropout(0.2))
+
+        self.encnorm = nn.LayerNorm(self.dim)
+        self.tm = NAM.NAMTuringNoJump(dim, n_tapes=nhead, default_tapelen=defalt_tapelen, mem_size=mem_size)
+        self.fc = nn.Sequential(nn.LayerNorm(dim),
+            nn.Dropout(0.1), nn.ReLU(),
+            nn.Linear(dim, 4*vocab_size))
+        self.vocab_size = vocab_size
+
+    #Batch-first in (N,S), batch-first out (N,C,S)
+    def forward(self, input):
+        input2 = input.permute(1,0)
+
+        src = self.embedding(input2)
+
+        src = self.encnorm(src)
+        outputs, tape = self.tm(src)
+        #outputs, tape = self.tm2(src, tape_in=tape)
+
+        #S,N,4,C to N,C,S,4
+        return self.fc(outputs).reshape(outputs.shape[0],outputs.shape[1],4,-1).permute(1,3,0,2)
+
+class UTListops(nn.Module):
+    def __init__(self, model_size=64, nhead=4, num_layers=2, vocab_size=16):
+        super().__init__()
+        self.model_size=model_size
+        self.vocab_size = vocab_size
+        assert model_size%2 == 0
+        self.embedding = nn.Embedding(vocab_size, model_size)
+        self.cell = UniversalTransformerEncoder(RelativeTransformerEncoderLayer,
+                                                depth=num_layers, d_model=model_size, nhead=nhead)
+        self.fc = nn.Linear(model_size, vocab_size*4)
+
+    #Batch-first in (N,S), batch-first out (N,C,S)
+    def forward(self, input):
+
+        src = self.cell(self.embedding(input)) #UT takes N, S, C
+        #N,S,4,C to N,C,S,4
+        return self.fc(src).reshape(src.shape[0],src.shape[1],4,-1).permute(0,3,1,2)
 
 def train(model, trainloader, criterion, optimizer, scheduler):
         model.train(mode=True)
@@ -20,26 +112,23 @@ def train(model, trainloader, criterion, optimizer, scheduler):
         tlen     = 0
         tloss    = 0
         bits = 0.0
-        maskcount = 0
+
         for x,y in trainloader:
             xdata       = x.cuda()
             ydata       = y.cuda()
             optimizer.zero_grad()
             output      = model(xdata)
 
-            ismask = xdata != ydata
-            maskcount += ismask.sum().item()
-
             loss        = criterion(output, ydata)
             loss.mean().backward()
-            bits += (loss*ismask).sum().item()
+            bits += (loss).sum().item()
 
             tloss       = tloss + loss.mean().item()
             nn.utils.clip_grad_norm_(model.parameters(), 0.1)
             optimizer.step()
             
             pred        = output.argmax(axis=1)
-            seqcorrect  = (pred==ydata).prod(-1)
+            seqcorrect  = (pred==ydata).prod(-1).prod(-1)
             tcorrect    = tcorrect + seqcorrect.sum().item()
             tlen        = tlen + seqcorrect.nelement()
         scheduler.step()
@@ -53,8 +142,8 @@ def train(model, trainloader, criterion, optimizer, scheduler):
         trainingResult.append('Current LR:' + str(scheduler.get_last_lr()[0]))
         
         #Perplexity  = 2^bit
-        print('Training Perplexity :\t{}'.format(math.exp((bits/maskcount) * math.log(2)))) 
-        trainingResult.append('Training Perplexity :\t{}'.format(math.exp((bits/maskcount) * math.log(2))))
+        print('Training Perplexity :\t{}'.format(math.exp((bits/tlen) * math.log(2)))) 
+        trainingResult.append('Training Perplexity :\t{}'.format(math.exp((bits/tlen) * math.log(2))))
        
 
 
@@ -70,9 +159,9 @@ def validate(model, valloader, valloader2, testloader, args):
         vloss2 = 0
         model.train(mode=False)
         bits = 0.0
-        maskcount = 0
+
         bits2 = 0.0
-        maskcount2 = 0
+
         tcorrect = 0
         tlen = 0
         with torch.no_grad():
@@ -82,14 +171,13 @@ def validate(model, valloader, valloader2, testloader, args):
                 output      = model(xdata)
                 # xdata <- masked index
                 # ydata2 <- answer 
-                ismask = xdata != ydata2
-                mcnt = ismask.sum().item()
+
                 loss        = F.cross_entropy(output, ydata2, reduction='none')
                 vloss       = vloss + loss.mean().item()
-                bits += (loss*ismask).sum().item()
-                maskcount += mcnt
+                bits += (loss).sum().item()
+
                 pred2       = output.argmax(axis=1)
-                seqcorrect  = (pred2==ydata2).prod(-1)
+                seqcorrect  = (pred2==ydata2).prod(-1).prod(-1)
                 vcorrect = vcorrect + seqcorrect.sum().item()
                 vlen     = vlen + seqcorrect.nelement()
             for i,(x,y) in enumerate(valloader2):
@@ -98,14 +186,12 @@ def validate(model, valloader, valloader2, testloader, args):
                 output      = model(xdata)
                 # xdata <- masked index
                 # ydata2 <- answer 
-                ismask = xdata != ydata2
-                mcnt = ismask.sum().item()
                 loss        = F.cross_entropy(output, ydata2, reduction='none')
                 vloss2       = vloss2 + loss.mean().item()
-                bits2 += (loss*ismask).sum().item()
-                maskcount2 += mcnt
+                bits2 += (loss).sum().item()
+
                 pred2       = output.argmax(axis=1)
-                seqcorrect  = (pred2==ydata2).prod(-1)
+                seqcorrect  = (pred2==ydata2).prod(-1).prod(-1)
                 vcorrect2 = vcorrect2 + seqcorrect.sum().item()
                 vlen2     = vlen2 + seqcorrect.nelement()
             for i,(x,y) in enumerate(testloader):
@@ -113,7 +199,7 @@ def validate(model, valloader, valloader2, testloader, args):
                 ydata2      = y.cuda()
                 output      = model(xdata)
                 pred2       = output.argmax(axis=1)
-                seqcorrect  = (pred2==ydata2).prod(-1)
+                seqcorrect  = (pred2==ydata2).prod(-1).prod(-1)
                 tcorrect = tcorrect + seqcorrect.sum().item()
                 tlen     = tlen + seqcorrect.nelement()
 
@@ -125,16 +211,16 @@ def validate(model, valloader, valloader2, testloader, args):
         print('validation loss:\t{}'.format(vloss/len(valloader)))
         accuracyResult.append('validation loss:\t{}'.format(vloss/len(valloader)))
         #Perplexity  = 2^bit
-        print('Perplexity :\t{}'.format(math.exp((bits/maskcount) * math.log(2)))) 
-        accuracyResult.append('Perplexity :\t{}'.format(math.exp((bits/maskcount) * math.log(2))))
+        print('Perplexity :\t{}'.format(math.exp((bits/vlen) * math.log(2)))) 
+        accuracyResult.append('Perplexity :\t{}'.format(math.exp((bits/vlen) * math.log(2))))
 
         print("\nval accuracy at OOD = {}".format(vcorrect2/vlen2))
         accuracyResult.append("val accuracy at OOD = {}".format(vcorrect2/vlen2))
         print('validation loss:\t{}'.format(vloss2/len(valloader2)))
         accuracyResult.append('validation loss:\t{}'.format(vloss2/len(valloader2)))
         #Perplexity  = 2^bit
-        print('Perplexity :\t{}'.format(math.exp((bits2/maskcount2) * math.log(2)))) 
-        accuracyResult.append('Perplexity :\t{}'.format(math.exp((bits2/maskcount2) * math.log(2))))
+        print('Perplexity :\t{}'.format(math.exp((bits2/tlen) * math.log(2)))) 
+        accuracyResult.append('Perplexity :\t{}'.format(math.exp((bits2/tlen) * math.log(2))))
 
         print("\nTest accuracy = {}".format(tcorrect/tlen))
         accuracyResult.append("Test accuracy = {}".format(tcorrect/tlen))
@@ -166,59 +252,15 @@ if __name__ == '__main__':
     #torch.backends.cudnn.allow_tf32 = False
     args = Options.get_args()
     #torch.autograd.set_detect_anomaly(args.debug)
-    if args.seq_type == 'fib':
-        
-        dataset     = NSPDatasetAE(fib, args.digits, size=args.train_size)
-        valset      = NSPDatasetAE(fib, args.digits, args.digits//2, size=args.validation_size)
-        valset2      = NSPDatasetAE(fib, args.digits+6, args.digits+1, size=args.validation_size)
-        testset      = NSPDatasetAE(fib, args.digits+12, args.digits+7, size=args.validation_size)
-        '''
-        dataset     = NSPDatasetV2('fib', args.digits, size=args.train_size)
-        valset      = NSPDatasetV2('fib', args.digits, args.digits//2, size=args.validation_size)
-        valset2      = NSPDatasetV2('fib', args.digits+6, args.digits+1, size=args.validation_size)
-        testset      = NSPDatasetV2('fib', args.digits+12, args.digits+7, size=args.validation_size)
-        '''
-    elif args.seq_type == 'arith':
-        dataset     = NSPDatasetAE(arith, args.digits, size=args.train_size)
-        valset      = NSPDatasetAE(arith, args.digits, args.digits//2, size=args.validation_size)
-        valset2      = NSPDatasetAE(arith, args.digits+6, args.digits+1, size=args.validation_size)
-        testset      = NSPDatasetAE(arith, args.digits+12, args.digits+7, size=args.validation_size)
-    elif args.seq_type == 'copy' or args.seq_type == 'palin':
-        dataset     = StringDataset(args.seq_type, args.digits, size=args.train_size)
-        valset      = StringDataset(args.seq_type, args.digits, args.digits//2, size=args.validation_size)
-        valset2      = StringDataset(args.seq_type, args.digits+6, args.digits+1, size=args.validation_size)
-        testset      = StringDataset(args.seq_type, args.digits+12, args.digits+7, size=args.validation_size)
-    elif args.seq_type == 'scan':
-        dataset     = SCANResplitAE('train', (0,args.digits))
-        valset      = SCANResplitAE('test', (0,args.digits))
-        valset2      = SCANResplitAE('all', (args.digits+1,9999))
-        testset      = valset2
-    elif args.seq_type == 'reduce':
-        dataset     = ReductionDatasetAE(args.digits, size=args.train_size)
-        valset      = ReductionDatasetAE(args.digits,args.digits//2, size=args.validation_size)
-        valset2      = ReductionDatasetAE(args.digits+6,args.digits+1, size=args.validation_size) 
-        testset      = ReductionDatasetAE(args.digits+12, args.digits+7, size=args.validation_size) 
-    elif args.seq_type == 'listops':
-        dataset     = ListopsDataset('listopsdata/basic_train.tsv')
-        valset      = ListopsDataset('listopsdata/basic_valid.tsv')
-        valset2      = ListopsDataset('listopsdata/basic_args.tsv')
-        testset      = ListopsDataset('listopsdata/basic_depth.tsv')
-    elif args.seq_type == 'dyck':
-        dataset     = DYCKDataset('dyckdata/dyck_train.txt')
-        valset      = DYCKDataset('dyckdata/dyck_val.txt')
-        valset2      = DYCKDataset('dyckdata/dyck_length.txt')
-        testset      = DYCKDataset('dyckdata/dyck_test.txt')
+    
+    dataset     = GuidedListops('listopsdata/basic_train.tsv')
+    valset      = GuidedListops('listopsdata/basic_valid.tsv')
+    valset2      = GuidedListops('listopsdata/basic_args.tsv')
+    testset      = GuidedListops('listopsdata/basic_depth.tsv')
 
 
-    if args.seq_type == 'scan': 
-        vocab_size = dataset.vocab_size
-        dictionary = dataset.wordtoix
-    elif args.seq_type == 'reduce': 
-        vocab_size = dataset.vocab_size
-    elif args.seq_type == 'listops': 
-        vocab_size = dataset.vocab_size
-    else:
-        vocab_size = 16
+
+    vocab_size = dataset.vocab_size
 
     if args.model_size == 'base':
         dmodel = 768
@@ -260,7 +302,7 @@ if __name__ == '__main__':
         model = Models.XLNetAE(dmodel, vocab_size = vocab_size, num_layers=num_layers, nhead=nhead).cuda()
     elif args.net == 'lstm':
         print('Executing Autoencoder model with LSTM including Attention')
-        model = Models.LSTMAE(int(dmodel*math.sqrt(num_layers)), vocab_size = vocab_size).cuda()
+        model = LSTMListops(int(dmodel*math.sqrt(num_layers)), vocab_size = vocab_size).cuda()
     elif args.net == 'dnc':
         print('Executing DNC model')
         #model = Models.DNCAE(dmodel + dmodel//2, nhead, vocab_size=vocab_size).cuda()
@@ -270,14 +312,14 @@ if __name__ == '__main__':
         model = NAM.LSAMAE(dmodel*2, nhead, vocab_size=vocab_size).cuda()
     elif args.net == 'namtm':
         print('Executing NAM-TM model')
-        model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead, debug=args.debug, mem_size=(dmodel*2)//nhead).cuda()
+        model = NAMTMListops(dmodel*2, vocab_size, nhead=nhead, debug=args.debug, mem_size=(dmodel*2)//nhead).cuda()
     elif args.net in ['namtm2','nojump','onlyjump','norwprob','noerase']:
         print('Executing NAM-TM model')
-        model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead, mem_size=(dmodel*2)//nhead, option=args.net, debug=args.debug).cuda()
+        model = NAMTMListops2(dmodel*2, vocab_size, nhead=nhead, debug=args.debug, mem_size=(dmodel*2)//nhead).cuda()
     elif args.net == 'ut':
         print('Executing Universal Transformer model')
         #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
-        model = Models.UTRelAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
+        model = UTListops(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
     elif args.net == 'stm':
         print('Executing STM model')
         #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
@@ -288,7 +330,7 @@ if __name__ == '__main__':
     print(args)
     print(model)
     print("Parameter count: {}".format(Options.count_params(model)))
-    col_fn = SCANResplitAE.collate_batch if args.seq_type == 'scan' else None
+    col_fn = None
     trainloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, collate_fn=col_fn)
     valloader   = DataLoader(valset, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
     valloader2   = DataLoader(valset2, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
@@ -324,7 +366,7 @@ if __name__ == '__main__':
                 print("Current best found. Saving pth")
                 bestacc=testAcc
                 pthfile = str("log/") + str(args.exp) + "_" + \
-                    str(time.strftime("%Y-%m-%d %H:%M:%S", ts)) + "_"+ str(args.seq_type) + \
+                    str(time.strftime("%Y-%m-%d %H:%M:%S", ts)) + "_"+ 'guidelistops' + \
                     "_" + str(args.net) + "_" + args.model_size +".pth", "w"
                 #torch.save(model.state_dict(), pthfile)
             #save into logfile

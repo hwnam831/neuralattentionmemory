@@ -52,9 +52,13 @@ This repository follows the open-source policies of all of them.
 - Ablation (No L/R, R/W prob, No erase) (Done for fib, for reduce?)
 - Bits through sequence length
 - UT+Rel (Done)
-- SCAN Resplit/COGS/PCFG - AE setup? verify with UT
-- RAR/NFAR/PSORT
+- SCAN Resplit/COGS/PCFG - AE setup? verify with UT (didn't work well)
+- RAR/NFAR/PSORT (Next)
 - babi 1k?
+- Listops (no median,first,last), repeated copy (implement), associative recall, key-value retrieval (from dncmds)
+- stack rnn, deque rnn
+- 2dyck, parity
 - TSP?
-- NAMTuringRecurrent? (values, queries , keys by hidden)
+- NAMTuringRecurrent? Residual connection?(read first? values, queries , keys by hidden)
 - nokeytape?
+- foward step in namturing2, recurrent version, same encoder-decoder

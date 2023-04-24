@@ -55,7 +55,7 @@ def get_args():
     parser.add_argument(
             "--seq_type",
             type=str,
-            choices= ['fib', 'arith', 'palin', 'copy', 'scan', 'reduce'],
+            choices= ['fib', 'arith', 'palin', 'copy', 'scan', 'reduce', 'listops','dyck'],
             default='fib',
             help='fib: fibonacci / arith: arithmetic / palin: palindrome / reduce: reduction / scan: SCAN')
     parser.add_argument(
