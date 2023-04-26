@@ -251,6 +251,49 @@ class StringDataset(Dataset):
 
         return self.inputs[idx], self.targets[idx]
 
+class RepeatedCopy(Dataset):
+    def __init__(self, repeat, maxdigits, mindigits=1, size=25600):
+        assert maxdigits > mindigits
+        self.maxdigits = maxdigits
+        self.mindigits = mindigits
+        self.repeat = repeat
+        self.size = size
+        self.maxlen = (maxdigits+1)*(2*repeat) + 1
+        self.inputs = np.ones([size, self.maxlen], dtype=np.int64)*Token.pad
+        self.targets = np.ones([size, self.maxlen], dtype=np.int64)*Token.pad
+        self.iscreated = [False for i in range(size)]
+        self.vocab_size=16
+    def __len__(self):
+        return self.size
+
+    def __getitem__(self, idx):
+        if not self.iscreated[idx]:
+            
+            ndigits = ((self.maxdigits-self.mindigits+1)*idx)//self.size + self.mindigits
+            pos = random.randint(0, self.maxlen - 2*self.repeat*(ndigits+1) - 1)
+            seq = np.random.randint(0, 10, [ndigits], dtype=np.int64)
+            
+            for _ in range(self.repeat):
+                seq = np.random.randint(0, 10, [ndigits], dtype=np.int64)
+                
+                self.inputs[idx][pos:pos+ndigits] = seq
+                self.targets[idx][pos:pos+ndigits] = seq
+                
+                self.inputs[idx][pos+ndigits] = Token.delim
+                self.targets[idx][pos+ndigits] = Token.delim
+
+                pos = pos + ndigits + 1
+                self.inputs[idx][pos:pos+ndigits] = seq
+                self.targets[idx][pos:pos+ndigits] = Token.mask
+                
+                self.inputs[idx][pos+ndigits] = Token.eos
+                self.targets[idx][pos+ndigits] = Token.eos
+                pos = pos + ndigits + 1
+                
+            self.iscreated[idx] = True
+
+        return self.inputs[idx], self.targets[idx]
+
 #100100011 -> 1111
 class ReductionDatasetAE(Dataset):
     def __init__(self, maxdigits, mindigits=1, size=6400):
@@ -302,9 +345,10 @@ def printseq2(x,y):
 if __name__ == '__main__':
     
     #dataset = NSPDatasetV2('fib',5,1)
-    dataset = NSPDatasetAE(fib,24,1)
+    #dataset = NSPDatasetAE(fib,24,1)
     #dataset = StringDataset('copy', 5, 1, size=256)
     #dataset = ReductionDatasetAE(12,8,size=512)
+    dataset = RepeatedCopy(3,5,1)
     loader = DataLoader(dataset, batch_size=4)
     for i in range(10):
         idx = np.random.randint(0,len(dataset))

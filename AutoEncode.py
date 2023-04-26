@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 import Options
 import Models
-from NSPDataset import ReductionDatasetAE, NSPDatasetAE, NSPDatasetV2, StringDataset, fib, arith
+from NSPDataset import ReductionDatasetAE, NSPDatasetAE, NSPDatasetV2, StringDataset,RepeatedCopy, fib, arith
 from ListOpsDataset import ListopsDataset
 import STM
 from SCANDataset import SCANResplitAE
@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 import time
 import math
 from DYCK import DYCKDataset
+from StackRNN import StackRNNAE
 
 def train(model, trainloader, criterion, optimizer, scheduler):
         model.train(mode=True)
@@ -183,7 +184,12 @@ if __name__ == '__main__':
         valset      = NSPDatasetAE(arith, args.digits, args.digits//2, size=args.validation_size)
         valset2      = NSPDatasetAE(arith, args.digits+6, args.digits+1, size=args.validation_size)
         testset      = NSPDatasetAE(arith, args.digits+12, args.digits+7, size=args.validation_size)
-    elif args.seq_type == 'copy' or args.seq_type == 'palin':
+    elif args.seq_type == 'copy':
+        dataset     = RepeatedCopy(3, args.digits, size=args.train_size)
+        valset      = RepeatedCopy(3, args.digits, args.digits//2, size=args.validation_size)
+        valset2      = RepeatedCopy(3, args.digits+6, args.digits+1, size=args.validation_size)
+        testset      = RepeatedCopy(4, args.digits+12, args.digits+7, size=args.validation_size)
+    elif args.seq_type == 'palin':
         dataset     = StringDataset(args.seq_type, args.digits, size=args.train_size)
         valset      = StringDataset(args.seq_type, args.digits, args.digits//2, size=args.validation_size)
         valset2      = StringDataset(args.seq_type, args.digits+6, args.digits+1, size=args.validation_size)
@@ -282,6 +288,10 @@ if __name__ == '__main__':
         print('Executing STM model')
         #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
         model = STM.STMAE(dmodel*2, vocab_size, nhead=nhead, mem_size=(dmodel*2)//nhead).cuda()
+    elif args.net == 'stack':
+        print('Executing Stack RNN model')
+        #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
+        model = StackRNNAE(dmodel*2, vocab_size=vocab_size, nhead=nhead, mem_size=(dmodel*2)//nhead).cuda()
     else :
         print('Network {} not supported'.format(args.net))
         exit()
