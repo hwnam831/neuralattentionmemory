@@ -298,7 +298,7 @@ class NAMTuring2(nn.Module):
                 tape_key = tape_key + newkey
 
             jpos = torch.einsum('lntc,ntc->lnt',tape_key,queries[i])
-            jpos = F.normalize(jpos,dim=0)
+            jpos = torch.softmax(jpos,dim=0)
             next_w = torch.roll(wpos, 1, dims=0)
             prev_w = torch.roll(wpos, -1, dims=0)
             wpos = prev_w*write_dir[None,:,:,0] + wpos*write_dir[None,:,:,1] +\
