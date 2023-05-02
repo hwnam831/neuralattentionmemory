@@ -215,6 +215,20 @@ class LSTMAE(nn.Module):
         outputs, _ = self.attn(outputs, outputs)
         outputs, state = self.decoder(self.dropout(outputs))
         return self.fc(self.dropout(outputs)).permute(1,2,0)
+    
+class LSTMNoAtt(nn.Module):
+    def __init__(self, model_size, num_layers=2, vocab_size=16):
+        super().__init__()
+        assert model_size %2 == 0
+        self.model_size = model_size
+        self.embed = nn.Embedding(vocab_size, self.model_size)
+        self.encoder = nn.LSTM(self.model_size, self.model_size//2, num_layers, bidirectional=True, dropout=0.1)
+        self.fc = nn.Linear(model_size, vocab_size)
+
+    def forward(self, input):
+        outputs = self.embed(input.permute(1,0))
+        outputs, state = self.encoder(outputs)
+        return self.fc(F.relu(outputs)).permute(1,2,0)
 
 class UTAE(nn.Module):
     def __init__(self, model_size=64, nhead=4, num_layers=2, vocab_size=16):

@@ -17,7 +17,7 @@ def get_args():
     parser.add_argument(
             "--net",
             type=str,
-            choices=['tf', 'cnn', 'lstm', 'xlnet', 'nojump', 'dnc', 'stm', 'stack',
+            choices=['tf', 'cnn', 'lstm', 'xlnet', 'nojump', 'dnc', 'stm', 'stack', 'noatt',
                      'lsam', 'namtm', 'ut', 'norwprob', 'onlyjump', 'namtm2', 'noerase'],
             default='namtm',
             help='network choices')

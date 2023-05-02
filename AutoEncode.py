@@ -7,7 +7,7 @@ import Models
 from NSPDataset import ReductionDatasetAE, NSPDatasetAE, NSPDatasetV2, StringDataset,RepeatedCopy, fib, arith
 from ListOpsDataset import ListopsDataset
 import STM
-from SCANDataset import SCANResplitAE
+#from SCANDataset import SCANResplitAE
 import NAM
 from torch.utils.data import DataLoader
 import time
@@ -267,6 +267,9 @@ if __name__ == '__main__':
     elif args.net == 'lstm':
         print('Executing Autoencoder model with LSTM including Attention')
         model = Models.LSTMAE(int(dmodel*math.sqrt(num_layers)), vocab_size = vocab_size).cuda()
+    elif args.net == 'noatt':
+        print('Executing Autoencoder model with LSTM w.o. Attention')
+        model = Models.LSTMNoAtt(int(dmodel*math.sqrt(num_layers)), vocab_size = vocab_size).cuda()
     elif args.net == 'dnc':
         print('Executing DNC model')
         #model = Models.DNCAE(dmodel + dmodel//2, nhead, vocab_size=vocab_size).cuda()
