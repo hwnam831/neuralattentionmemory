@@ -145,30 +145,32 @@ class NAMTuring(nn.Module):
             rwe = rweprobs[i]
             read_dir=directions_r[i]
             write_dir=directions_w[i]
-            oldval = torch.einsum('lntc,lnt->ntc',tape, wpos)
+            nrpos = F.normalize(rpos, dim=0)
+            nwpos = F.normalize(wpos, dim=0)
+            oldval = torch.einsum('lntc,lnt->ntc',tape, nwpos)
             
 
             if self.noerase:
-                newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]*rwe[:,:,1:2])
+                newmem = torch.einsum('lnt,ntc->lntc',nwpos,values[i]*rwe[:,:,1:2])
             elif self.rwprob:
                 #newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]-oldval)
-                newmem = torch.einsum('lnt,ntc->lntc',wpos,(values[i]*rwe[:,:,1:2]-oldval*rwe[:,:,2:3]))
+                newmem = torch.einsum('lnt,ntc->lntc',nwpos,(values[i]*rwe[:,:,1:2]-oldval*rwe[:,:,2:3]))
             else:
-                newmem = torch.einsum('lnt,ntc->lntc',wpos,(values[i]-oldval))
+                newmem = torch.einsum('lnt,ntc->lntc',nwpos,(values[i]-oldval))
             tape = tape + newmem
 
 
 
-            read_out = torch.einsum('lntc,lnt->ntc',tape,rpos)
+            read_out = torch.einsum('lntc,lnt->ntc',tape,nrpos)
 
-            oldkey = torch.einsum('lntc,lnt->ntc',tape_key, wpos)
+            oldpos = torch.einsum('lntc,ntc->lnt',tape_key, keys[i])
             if self.noerase:
                 newkey = torch.einsum('lnt,ntc->lntc',wpos,keys[i])
             elif self.rwprob:
                 #newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]-oldkey))
-                newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]*rwe[:,:,1:2]-oldkey*rwe[:,:,2:3]))
+                newkey = torch.einsum('lnt,ntc->lntc',(wpos*rwe[:,:,1]-oldpos*rwe[:,:,2]),keys[i])
             else:
-                newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]-oldkey))
+                newkey = torch.einsum('lnt,ntc->lntc',(wpos-oldpos),keys[i])
 
             
             if self.rwprob:
@@ -178,7 +180,7 @@ class NAMTuring(nn.Module):
                 tape_key = tape_key + newkey
 
             jpos = torch.einsum('lntc,ntc->lnt',tape_key,queries[i])
-            jpos = F.normalize(jpos,dim=0)
+            #jpos = F.normalize(jpos,dim=0)
             next_w = torch.roll(wpos, 1, dims=0)
             prev_w = torch.roll(wpos, -1, dims=0)
             wpos = prev_w*write_dir[None,:,:,0] + wpos*write_dir[None,:,:,1] +\
@@ -213,8 +215,8 @@ class NAMTuring2(nn.Module):
         # (prev, next, no-op, jump)
         #direction layers for read/write heads
         #action: (read_direction(4), write_direction(4), rweprob(3))
-        self.controller = nn.LSTM(self.dim, self.dim//2,bidirectional=True)
-        #self.controller = nn.LSTM(self.dim, self.dim,bidirectional=False)
+        #self.controller = nn.LSTM(self.dim, self.dim//2,bidirectional=True)
+        self.controller = nn.LSTM(self.dim, self.dim,bidirectional=False)
 
         self.actionlayer = nn.Linear(self.dim, 11*self.n_tapes)
         self.valuelayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
@@ -265,30 +267,32 @@ class NAMTuring2(nn.Module):
             rwe = rweprobs[i]
             read_dir=directions_r[i]
             write_dir=directions_w[i]
-            oldval = torch.einsum('lntc,lnt->ntc',tape, wpos)
+            nrpos = F.normalize(rpos, dim=0)
+            nwpos = F.normalize(wpos, dim=0)
+            oldval = torch.einsum('lntc,lnt->ntc',tape, nwpos)
             
 
             if self.noerase:
-                newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]*rwe[:,:,1:2])
+                newmem = torch.einsum('lnt,ntc->lntc',nwpos,values[i]*rwe[:,:,1:2])
             elif self.rwprob:
                 #newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]-oldval)
-                newmem = torch.einsum('lnt,ntc->lntc',wpos,(values[i]*rwe[:,:,1:2]-oldval*rwe[:,:,2:3]))
+                newmem = torch.einsum('lnt,ntc->lntc',nwpos,(values[i]*rwe[:,:,1:2]-oldval*rwe[:,:,2:3]))
             else:
-                newmem = torch.einsum('lnt,ntc->lntc',wpos,(values[i]-oldval))
+                newmem = torch.einsum('lnt,ntc->lntc',nwpos,(values[i]-oldval))
             tape = tape + newmem
 
 
 
-            read_out = torch.einsum('lntc,lnt->ntc',tape,rpos)
+            read_out = torch.einsum('lntc,lnt->ntc',tape,nrpos)
 
-            oldkey = torch.einsum('lntc,lnt->ntc',tape_key, wpos)
+            oldpos = torch.einsum('lntc,ntc->lnt',tape_key, keys[i])
             if self.noerase:
                 newkey = torch.einsum('lnt,ntc->lntc',wpos,keys[i])
             elif self.rwprob:
                 #newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]-oldkey))
-                newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]*rwe[:,:,1:2]-oldkey*rwe[:,:,2:3]))
+                newkey = torch.einsum('lnt,ntc->lntc',(wpos*rwe[:,:,1]-oldpos*rwe[:,:,2]),keys[i])
             else:
-                newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]-oldkey))
+                newkey = torch.einsum('lnt,ntc->lntc',(wpos-oldpos),keys[i])
 
             
             if self.rwprob:
@@ -298,7 +302,7 @@ class NAMTuring2(nn.Module):
                 tape_key = tape_key + newkey
 
             jpos = torch.einsum('lntc,ntc->lnt',tape_key,queries[i])
-            jpos = torch.softmax(jpos,dim=0)
+            #jpos = F.normalize(jpos,dim=0)
             next_w = torch.roll(wpos, 1, dims=0)
             prev_w = torch.roll(wpos, -1, dims=0)
             wpos = prev_w*write_dir[None,:,:,0] + wpos*write_dir[None,:,:,1] +\
@@ -507,7 +511,7 @@ class NAMTMAE(nn.Module):
         elif option=='onlyjump':
             self.tm = NAMTuringOnlyJump(dim, n_tapes=nhead, mem_size=mem_size, default_tapelen=defalt_tapelen)
         elif option=='namtm2':
-            self.tm = NAMTuringRecurrent(dim, n_tapes=nhead, default_tapelen=defalt_tapelen, debug=debug, mem_size=mem_size)
+            self.tm = NAMTuring2(dim, n_tapes=nhead, default_tapelen=defalt_tapelen, debug=debug, mem_size=mem_size)
         elif option=='norwprob':
             self.tm = NAMTuring(dim, n_tapes=nhead, default_tapelen=defalt_tapelen, mem_size=mem_size, rwprob=False)
         elif option=='noerase':
