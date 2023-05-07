@@ -294,7 +294,7 @@ if __name__ == '__main__':
     elif args.net == 'stack':
         print('Executing Stack RNN model')
         #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
-        model = StackRNNAE(dmodel*2, vocab_size=vocab_size, nhead=nhead, mem_size=(dmodel*2)//nhead).cuda()
+        model = StackRNNAE(dmodel*4, vocab_size=vocab_size, nhead=nhead, mem_size=(dmodel*4)//nhead).cuda()
     else :
         print('Network {} not supported'.format(args.net))
         exit()

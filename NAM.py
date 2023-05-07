@@ -418,19 +418,24 @@ class NAMTuringRecurrent(nn.Module):
         return torch.stack(read_outs,dim=0), tape.reshape(tape.shape[0], batchsize, self.head_dim*self.n_tapes)
 
 class NAMTuringOnlyJump(nn.Module):
-    def __init__(self,dim, n_tapes=4, default_tapelen=32, mem_size=64):
+    def __init__(self,dim, n_tapes=4, default_tapelen=32, mem_size=64, rwprob=True, noerase=False, debug=False):
         super().__init__()
         assert dim%n_tapes == 0
         self.head_dim=mem_size
         self.dim = dim
         self.n_tapes = n_tapes
         self.default_tapelen = default_tapelen
-        # (no-op, jump)
+        self.rwprob = rwprob
+        self.noerase = noerase
+        self.debug=debug
+
+        # (prev, next, no-op, jump)
         #direction layers for read/write heads
-        #action: (read_direction(2), write_direction(2), rwprob(2))
+        #action: (read_direction(4), write_direction(4), rweprob(3))
         #self.controller = nn.LSTM(self.dim, self.dim//2,bidirectional=True)
         self.controller = nn.LSTM(self.dim, self.dim,bidirectional=False)
-        self.actionlayer = nn.Linear(self.dim, 6*self.n_tapes)
+
+        self.actionlayer = nn.Linear(self.dim, 7*self.n_tapes)
         self.valuelayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
         self.keylayer = nn.Linear(self.dim, self.head_dim*self.n_tapes)
         self.outlayer = nn.Linear(self.head_dim*self.n_tapes,dim)
@@ -444,6 +449,8 @@ class NAMTuringOnlyJump(nn.Module):
         batchsize = inputs.shape[1]
 
         values = self.valuelayer(inputs).reshape(seqlen, batchsize, self.n_tapes, self.head_dim)
+
+        
         keys = self.keylayer(inputs).reshape(seqlen, batchsize, self.n_tapes, self.head_dim)
         keys = unitnorm(keys)
         #(L,N,T,C)
@@ -464,34 +471,65 @@ class NAMTuringOnlyJump(nn.Module):
        
         #(S,N,C) -> (S,N,nh,8)
         hidden, _ = self.controller(inputs)
-        actions = self.actionlayer(hidden).reshape(seqlen,batchsize,self.n_tapes,6)
+
+        actions = self.actionlayer(hidden).reshape(seqlen,batchsize,self.n_tapes,7)
         directions_r = F.softmax(actions[:,:,:,:2], dim=-1)
         directions_w = F.softmax(actions[:,:,:,2:4], dim=-1)
-        #(S,N,nh,2)
-        rwprobs = torch.sigmoid(actions[:,:,:,4:])
+        #(S,N,nh,3)
+        rweprobs = torch.sigmoid(actions[:,:,:,4:])
         queries = self.Wq(hidden).reshape(seqlen,batchsize,self.n_tapes,self.head_dim)
         queries = unitnorm(queries)
         read_outs = []
         for i in range(seqlen):
-            rw = rwprobs[i]
+            rwe = rweprobs[i]
             read_dir=directions_r[i]
             write_dir=directions_w[i]
-            oldval = torch.einsum('lntc,lnt->ntc',tape, wpos)
-            newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]-oldval)
-            tape = tape + newmem*rw[None,:,:,1:2]
-            read_out = torch.einsum('lntc,lnt->ntc',tape,rpos)
+            nrpos = F.normalize(rpos, dim=0)
+            nwpos = F.normalize(wpos, dim=0)
+            oldval = torch.einsum('lntc,lnt->ntc',tape, nwpos)
             
-            oldkey = torch.einsum('lntc,lnt->ntc',tape_key, wpos)
-            newkey = torch.einsum('lnt,ntc->lntc',wpos,keys[i]-oldkey)
-            tape_key = tape_key + newkey*rw[None,:,:,1:2]
+
+            if self.noerase:
+                newmem = torch.einsum('lnt,ntc->lntc',nwpos,values[i]*rwe[:,:,1:2])
+            elif self.rwprob:
+                #newmem = torch.einsum('lnt,ntc->lntc',wpos,values[i]-oldval)
+                newmem = torch.einsum('lnt,ntc->lntc',nwpos,(values[i]*rwe[:,:,1:2]-oldval*rwe[:,:,2:3]))
+            else:
+                newmem = torch.einsum('lnt,ntc->lntc',nwpos,(values[i]-oldval))
+            tape = tape + newmem
+
+
+
+            read_out = torch.einsum('lntc,lnt->ntc',tape,nrpos)
+
+            oldpos = torch.einsum('lntc,ntc->lnt',tape_key, keys[i])
+            if self.noerase:
+                newkey = torch.einsum('lnt,ntc->lntc',wpos,keys[i])
+            elif self.rwprob:
+                #newkey = torch.einsum('lnt,ntc->lntc',wpos,(keys[i]-oldkey))
+                newkey = torch.einsum('lnt,ntc->lntc',(wpos*rwe[:,:,1]-oldpos*rwe[:,:,2]),keys[i])
+            else:
+                newkey = torch.einsum('lnt,ntc->lntc',(wpos-oldpos),keys[i])
+
             
+            if self.rwprob:
+                #tape_key = tape_key + newkey*rw[None,:,:,1:2]
+                tape_key = tape_key + newkey
+            else:
+                tape_key = tape_key + newkey
+
             jpos = torch.einsum('lntc,ntc->lnt',tape_key,queries[i])
-            jpos = F.normalize(jpos,dim=0)
+            #jpos = F.normalize(jpos,dim=0)
 
             wpos = wpos*write_dir[None,:,:,0] + jpos*write_dir[None,:,:,1]
-            
-            read_outs.append(read_out*rw[:,:,0:1])
+            #wpos = F.normalize(wpos,dim=0)
+            if self.rwprob:
+                read_outs.append(read_out*rwe[:,:,0:1])
+            else:
+                read_outs.append(read_out)
+
             rpos = rpos*read_dir[None,:,:,0] + jpos*read_dir[None,:,:,1]
+            #rpos = F.normalize(rpos,dim=0)
             
         outputs = torch.stack(read_outs).reshape(seqlen,batchsize,-1)
         outputs = self.outlayer(outputs)
