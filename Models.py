@@ -2,11 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from Encoder import CNNEncoder, XLNetEncoderLayer
-from dnc.dnc import DNC
 from dncmds.Models.DNC import DNC as DNCMDS
 from dncmds.Models.DNC import LSTMController
-from models import UTransformer
-import functools
 from transformer_generalization.layers.transformer.universal_transformer import UniversalTransformerEncoder
 from transformer_generalization.layers.transformer.universal_relative_transformer import RelativeTransformerEncoderLayer
 
@@ -133,28 +130,6 @@ class XLNetAE(nn.Module):
 
         return self.fc(g).permute(1,2,0)
 
-class DNCAE(nn.Module):
-    def __init__(self, model_size=64, nhead=4, nr_cells=32, vocab_size=16):
-        super().__init__()
-        self.model_size=model_size
-        self.vocab_size = vocab_size
-        self.embedding = nn.Embedding(vocab_size, model_size)
-        
-        self.cell = DNC(input_size=model_size,
-            hidden_size=model_size,
-            batch_first=True,
-            bidirectional=False,
-            nr_cells=nr_cells,
-            read_heads=nhead,
-            cell_size=model_size,
-            gpu_id=0,
-        )
-        self.fc = nn.Linear(model_size, vocab_size)
-    #Batch-first in (N,S), batch-first out (N,C,S)
-    def forward(self, input):
-        src = self.cell(self.embedding(input))[0] #N, S, C
-        return self.fc(src).permute(0,2,1)
-
 class DNCMDSAE(nn.Module):
     def __init__(self, model_size=64, nhead=4, nr_cells=32, vocab_size=16, mem_size=64):
         super().__init__()
@@ -230,22 +205,7 @@ class LSTMNoAtt(nn.Module):
         outputs, state = self.encoder(outputs)
         return self.fc(F.relu(outputs)).permute(1,2,0)
 
-class UTAE(nn.Module):
-    def __init__(self, model_size=64, nhead=4, num_layers=2, vocab_size=16):
-        super().__init__()
-        self.model_size=model_size
-        self.vocab_size = vocab_size
-        assert model_size%2 == 0
-        self.embedding = nn.Embedding(vocab_size, model_size)
-        self.cell = UTransformer.Encoder(model_size, model_size, num_layers, nhead, 
-            total_key_depth=model_size, total_value_depth=model_size, filter_size=model_size, layer_dropout=0.1)
-        self.fc = nn.Linear(model_size, vocab_size)
 
-    #Batch-first in (N,S), batch-first out (N,C,S)
-    def forward(self, input):
-
-        src = self.cell(self.embedding(input))[0] #UT takes N, S, C
-        return self.fc(src).permute(0,2,1)
     
 class UTRelAE(nn.Module):
     def __init__(self, model_size=64, nhead=4, num_layers=2, vocab_size=16):

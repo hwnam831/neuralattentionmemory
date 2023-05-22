@@ -18,7 +18,7 @@ def get_args():
             "--net",
             type=str,
             choices=['tf', 'cnn', 'lstm', 'xlnet', 'nojump', 'dnc', 'stm', 'stack', 'noatt',
-                     'lsam', 'namtm', 'ut', 'norwprob', 'onlyjump', 'namtm2', 'noerase'],
+                      'namtm', 'ut', 'norwprob', 'onlyjump', 'noerase'],
             default='namtm',
             help='network choices')
     parser.add_argument(
@@ -39,7 +39,7 @@ def get_args():
     parser.add_argument(
             "--batch_size",
             type=int,
-            default='256',
+            default='128',
             help='batch size')
     parser.add_argument(
             "--model_size",
@@ -55,9 +55,9 @@ def get_args():
     parser.add_argument(
             "--seq_type",
             type=str,
-            choices= ['fib', 'arith', 'palin', 'copy', 'scan', 'reduce', 'listops','dyck'],
-            default='fib',
-            help='fib: fibonacci / arith: arithmetic / palin: palindrome / reduce: reduction / scan: SCAN')
+            choices= ['add', 'arith', 'reverse', 'copy', 'reduce', 'dyck'],
+            default='add',
+            help='add: addition / arith: arithmetic / reverse: palindrome / reduce: reduction / dyck: 4-DYCK')
     parser.add_argument(
             "--lr",
             type=float,

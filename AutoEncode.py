@@ -4,10 +4,8 @@ import torch.nn.functional as F
 import numpy as np
 import Options
 import Models
-from NSPDataset import ReductionDatasetAE, NSPDatasetAE, NSPDatasetV2, StringDataset,RepeatedCopy, fib, arith
-from ListOpsDataset import ListopsDataset
+from NSPDataset import ReductionDatasetAE, NSPDatasetAE, StringDataset,RepeatedCopy, fib, arith
 import STM
-#from SCANDataset import SCANResplitAE
 import NAM
 from torch.utils.data import DataLoader
 import time
@@ -167,18 +165,11 @@ if __name__ == '__main__':
     #torch.backends.cudnn.allow_tf32 = False
     args = Options.get_args()
     #torch.autograd.set_detect_anomaly(args.debug)
-    if args.seq_type == 'fib':
-        
+    if args.seq_type == 'add':
         dataset     = NSPDatasetAE(fib, args.digits, size=args.train_size)
         valset      = NSPDatasetAE(fib, args.digits, args.digits//2, size=args.validation_size)
         valset2      = NSPDatasetAE(fib, args.digits+6, args.digits+1, size=args.validation_size)
         testset      = NSPDatasetAE(fib, args.digits+12, args.digits+7, size=args.validation_size)
-        '''
-        dataset     = NSPDatasetV2('fib', args.digits, size=args.train_size)
-        valset      = NSPDatasetV2('fib', args.digits, args.digits//2, size=args.validation_size)
-        valset2      = NSPDatasetV2('fib', args.digits+6, args.digits+1, size=args.validation_size)
-        testset      = NSPDatasetV2('fib', args.digits+12, args.digits+7, size=args.validation_size)
-        '''
     elif args.seq_type == 'arith':
         dataset     = NSPDatasetAE(arith, args.digits, size=args.train_size)
         valset      = NSPDatasetAE(arith, args.digits, args.digits//2, size=args.validation_size)
@@ -189,26 +180,16 @@ if __name__ == '__main__':
         valset      = RepeatedCopy(3, args.digits, args.digits//2, size=args.validation_size)
         valset2      = RepeatedCopy(3, args.digits+6, args.digits+1, size=args.validation_size)
         testset      = RepeatedCopy(4, args.digits+12, args.digits+7, size=args.validation_size)
-    elif args.seq_type == 'palin':
+    elif args.seq_type == 'reverse':
         dataset     = StringDataset(args.seq_type, args.digits, size=args.train_size)
         valset      = StringDataset(args.seq_type, args.digits, args.digits//2, size=args.validation_size)
         valset2      = StringDataset(args.seq_type, args.digits+6, args.digits+1, size=args.validation_size)
         testset      = StringDataset(args.seq_type, args.digits+12, args.digits+7, size=args.validation_size)
-    elif args.seq_type == 'scan':
-        dataset     = SCANResplitAE('train', (0,args.digits))
-        valset      = SCANResplitAE('test', (0,args.digits))
-        valset2      = SCANResplitAE('all', (args.digits+1,9999))
-        testset      = valset2
     elif args.seq_type == 'reduce':
         dataset     = ReductionDatasetAE(args.digits, size=args.train_size)
         valset      = ReductionDatasetAE(args.digits,args.digits//2, size=args.validation_size)
         valset2      = ReductionDatasetAE(args.digits+6,args.digits+1, size=args.validation_size) 
         testset      = ReductionDatasetAE(args.digits+12, args.digits+7, size=args.validation_size) 
-    elif args.seq_type == 'listops':
-        dataset     = ListopsDataset('listopsdata/basic_train.tsv')
-        valset      = ListopsDataset('listopsdata/basic_valid.tsv')
-        valset2      = ListopsDataset('listopsdata/basic_args.tsv')
-        testset      = ListopsDataset('listopsdata/basic_depth.tsv')
     elif args.seq_type == 'dyck':
         dataset     = DYCKDataset('dyckdata/dyck_train.txt')
         valset      = DYCKDataset('dyckdata/dyck_val.txt')
@@ -272,28 +253,21 @@ if __name__ == '__main__':
         model = Models.LSTMNoAtt(int(dmodel*math.sqrt(num_layers)), vocab_size = vocab_size).cuda()
     elif args.net == 'dnc':
         print('Executing DNC model')
-        #model = Models.DNCAE(dmodel + dmodel//2, nhead, vocab_size=vocab_size).cuda()
         model = Models.DNCMDSAE(dmodel*2, nhead, vocab_size=vocab_size, mem_size=(dmodel*2)//nhead).cuda()
-    elif args.net == 'lsam':
-        print('Executing LSAM model')
-        model = NAM.LSAMAE(dmodel*2, nhead, vocab_size=vocab_size).cuda()
     elif args.net == 'namtm':
         print('Executing NAM-TM model')
         model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead, debug=args.debug, mem_size=(dmodel*2)//nhead).cuda()
-    elif args.net in ['namtm2','nojump','onlyjump','norwprob','noerase']:
+    elif args.net in ['nojump','onlyjump','norwprob','noerase']:
         print('Executing NAM-TM model')
         model = NAM.NAMTMAE(dmodel*2, vocab_size, nhead=nhead, mem_size=(dmodel*2)//nhead, option=args.net, debug=args.debug).cuda()
     elif args.net == 'ut':
         print('Executing Universal Transformer model')
-        #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
         model = Models.UTRelAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
     elif args.net == 'stm':
         print('Executing STM model')
-        #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
         model = STM.STMAE(dmodel*2, vocab_size, nhead=nhead, mem_size=(dmodel*2)//nhead).cuda()
     elif args.net == 'stack':
         print('Executing Stack RNN model')
-        #model = Models.UTAE(dmodel*3, nhead=nhead, num_layers=num_layers, vocab_size = vocab_size).cuda()
         model = StackRNNAE(dmodel*4, vocab_size=vocab_size, nhead=nhead, mem_size=(dmodel*4)//nhead).cuda()
     else :
         print('Network {} not supported'.format(args.net))
@@ -301,7 +275,7 @@ if __name__ == '__main__':
     print(args)
     print(model)
     print("Parameter count: {}".format(Options.count_params(model)))
-    col_fn = SCANResplitAE.collate_batch if args.seq_type == 'scan' else None
+    col_fn = None
     trainloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=8, collate_fn=col_fn)
     valloader   = DataLoader(valset, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
     valloader2   = DataLoader(valset2, batch_size=args.batch_size, num_workers=4, collate_fn=col_fn)
@@ -334,13 +308,8 @@ if __name__ == '__main__':
         
         if args.log:
             if testAcc > bestacc:
-                print("Current best found. Saving pth")
+                print("Current best found.")
                 bestacc=testAcc
-                pthfile = str("log/") + str(args.exp) + "_" + \
-                    str(time.strftime("%Y-%m-%d %H:%M:%S", ts)) + "_"+ str(args.seq_type) + \
-                    "_" + str(args.net) + "_" + args.model_size +".pth", "w"
-                #torch.save(model.state_dict(), pthfile)
-            #save into logfile
             trainResult.extend(valResult)
             logger(args, ts, e+1, trainResult)
 
