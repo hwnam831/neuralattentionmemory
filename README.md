@@ -62,3 +62,4 @@ This repository follows the open-source policies of all of them.
 - NAMTuringRecurrent? Residual connection?(read first? values, queries , keys by hidden)
 - nokeytape?
 - foward step in namturing2, recurrent version, same encoder-decoder
+- Post-action write head??
