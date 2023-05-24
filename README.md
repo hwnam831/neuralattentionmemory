@@ -31,7 +31,7 @@ Our program supports multiple command-line options to provide a better user expe
 
 | Options      | Default | Description                                                  |
 | ------------ | ------- | ------------------------------------------------------------ |
-| --net        | namtm      | Model to run <br>ut: Universal Transformer <br>ut: Universal Transformer <br>dnc: Differentiable Neural Computer<br>lstm: LSTM w attention <br>STM: SAM Two-memory <br>namtm: NAM-TM <br>stack: Stack-RNN |
+| --net        | namtm      | Model to run <br>tf: Transformer <br>ut: Universal Transformer <br>dnc: Differentiable Neural Computer<br>lstm: LSTM w attention <br>stm: SAM Two-memory Model <br>namtm: NAM-TM <br>stack: Stack-RNN |
 | --seq_type   | add     | task for prediction <br>add: addition task (NSP)<br>reverse: reverse task (NSP)<br>reduce: Sequence reduction task<br>dyck: 4-DYCK task |
 | --digits     | 10      | Max number of training digits  | 
 | --log        | false   | Log training/validation results                              |
