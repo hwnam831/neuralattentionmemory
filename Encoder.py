@@ -2,18 +2,6 @@ import torch
 import torch.nn as nn
 import XLNet
 
-class TFEncoder(nn.Module):
-    def __init__(self, model_size=512, nhead=2, num_layers=3):
-        super().__init__()
-        self.model_size=model_size
-        self.enclayer = nn.TransformerEncoderLayer(d_model=model_size, nhead=nhead)
-        self.encoder = nn.TransformerEncoder(self.enclayer, \
-            num_layers=num_layers)
-    #Seq-first in-out (S,N,C)
-    def forward(self, src):
-        memory = self.encoder(src)
-        return memory
-
 def ConvBlockRelu(c_in, c_out, ksize, dilation=1):
     pad = ((ksize-1)//2)*dilation
     return nn.Sequential(

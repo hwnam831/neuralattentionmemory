@@ -1,19 +1,29 @@
-## Neural Attention Memory
+# Neural Attention Memory
 
+This is the repository for Neural Attention Memory paper experiments.
+Clone with `--recurse-submodules` to load the SCAN dataset.
 
+## Requirements
+- Python 3.8
+- CUDA-capable GPU (Tested on RTX 4090 24GB. Reduce `--batch_size` if gpu memory is limited)
+- PyTorch >= 1.7
+- CUDA >= 10 (Install with PyTorch)
+- Python libraries listed in requirements.txt
 
-### Running I-BERT
+## Running Experiments
 
 -----
 
-I-BERT can be simply run from Bash. Below is the most core command line to run I-BERT. 
+`AutoEncode.py` is the code for running the experiments as below.  
+
+`--log` will create a log file of the experiment.
 
 ```bash
-python3 AutoEncode.py --net ibert
+python AutoEncode.py --net namtm --seq_type add --digits 10 --log
 ```
 
-
-### Options
+For 4-DYCK, run `python DYCK.py` to generate the data points first.
+## Options
 
 -----
 
@@ -21,30 +31,20 @@ Our program supports multiple command-line options to provide a better user expe
 
 | Options      | Default | Description                                                  |
 | ------------ | ------- | ------------------------------------------------------------ |
-| --net        | tf      | Model for your task <br>ibert: I-BERT <br>xlnet: XLNet<br>lstm: LSTM seq2seq <br>tf: BERT <br>ibertpos: I-BERT with positional encoding <br>ibert2: I-BERT2 |
-| --seq_type   | fib     | task for prediction <br>fib: addition task (NSP Dataset)<br>copy: copy task (NSP Dataset)<br>palin: reverse task (NSP Dataset)<br>ptbc: Penn Tree Bank Character<br>ptbw: Penn Tree Bank Word |
-| --digits     | 12      | Max number of training digits <br>(Only supports for algorithmic tests) |
-| --batch_size | 32      | Number of epochs                                             |
-| --epochs     | 50      | Number of epochs                                             |
-| --lr         | 3e-5    | Learning rate                                                |
+| --net        | namtm      | Model to run <br>tf: Transformer <br>ut: Universal Transformer <br>dnc: Differentiable Neural Computer<br>lstm: LSTM w attention <br>stm: SAM Two-memory Model <br>namtm: NAM-TM <br>stack: Stack-RNN |
+| --seq_type   | add     | task for prediction <br>add: addition task (NSP)<br>reverse: reverse task (NSP)<br>reduce: Sequence reduction task<br>dyck: 4-DYCK task |
+| --digits     | 10      | Max number of training digits  | 
 | --log        | false   | Log training/validation results                              |
 | --exp        | 0       | Assign log file identifier when --log is true                |
 
-For example, if we want to run a `Penn Tree Bank Word` dataset with 100 epochs with I-BERT, we can try the following: 
+See `Options.py` or `python AutoEncode.py --help` for more options.
 
-```bash
-python3 AutoEncode.py --net ibert --seq_type ptbw --epochs 100
-```
-
-
-
-
-### TODO
-
-- CTC?
-- Add model save/load
-
-### AE tasks - LSAM?
-- ID val / OOD easy val
-- NSP
+## Copyright Notice
+Some parts of this repository are from the following open-source projects.  
+This repository follows the open-source policies of all of them.  
+- DNC (`dnc/`): https://github.com/RobertCsordas/dnc
+- Universal Transformer (`transformer_generalization/`): https://github.com/RobertCsordas/transformer_generalization
+- LSTM seq2seq (`Models.py`): https://github.com/pytorch/fairseq
+- Number Sequence Prediction dataset (`NSPDataset.py, AutoEncode.py`): https://github.com/hwnam831/numbersequenceprediction
+- XLNet (`XLNet.py`): https://github.com/huggingface/transformers
 

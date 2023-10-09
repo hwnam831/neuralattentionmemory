@@ -13,27 +13,28 @@ def count_params(model):
 
 def get_args():
     """Get all the args"""
-    parser = argparse.ArgumentParser(description="CS546 Project: Trasnformer Generalization to Arbitary Context Lengths")
+    parser = argparse.ArgumentParser(description="Neural Attention Memory")
     parser.add_argument(
             "--net",
             type=str,
-            choices=['tf', 'cnn', 'gru', 'lstm', 'xlnet', 'ibert', 'ibertpos', 'ibert2', 'nam', 'linear', 'dnc', 'lsam', 'namtm', 'ut'],
-            default='lsam',
+            choices=['tf', 'cnn', 'lstm', 'xlnet', 'nojump', 'dnc', 'stm', 'stack', 'noatt',
+                      'namtm', 'ut', 'norwprob', 'onlyjump', 'noerase'],
+            default='namtm',
             help='network choices')
     parser.add_argument(
             "--epochs",
             type=int,
-            default='100',
+            default='50',
             help='number of epochs')
     parser.add_argument(
             "--train_size",
             type=int,
-            default='25600',
+            default='51200',
             help='number of training examples per epoch')
     parser.add_argument(
             "--validation_size",
             type=int,
-            default='1024',
+            default='2560',
             help='number of validation examples')
     parser.add_argument(
             "--batch_size",
@@ -54,9 +55,9 @@ def get_args():
     parser.add_argument(
             "--seq_type",
             type=str,
-            choices= ['fib', 'arith', 'palin', 'copy', 'ptbc', 'ptbw', 'scan', 'reduce'],
-            default='fib',
-            help='fib: fibonacci / arith: arithmetic / palin: palindrome / ptbc: ptb char / ptbw: ptb word')
+            choices= ['add', 'arith', 'reverse', 'copy', 'reduce', 'dyck'],
+            default='add',
+            help='add: addition / arith: arithmetic / reverse: palindrome / reduce: reduction / dyck: 4-DYCK')
     parser.add_argument(
             "--lr",
             type=float,
@@ -64,10 +65,17 @@ def get_args():
             help='Default learning rate')
     parser.add_argument(
             "--log",
-            type=str,
-            choices= ['true', 'false'],
-            default='false',
+            action='store_true',
             help='Save result to file')
+    parser.add_argument(
+            "--debug",
+            action='store_true',
+            help='Debugger to detect Nan')
+    parser.add_argument(
+            "--logmsg",
+            type=str,
+            default='',
+            help='Msg about this experiment')
     parser.add_argument(
             "--exp",
             type=int,

@@ -3,3 +3,5 @@ __pycache__/*
 *.log
 temp.py
 dnc/__pycache__/*
+cache/
+save/
